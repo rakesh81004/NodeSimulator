@@ -33,6 +33,7 @@ export const StackTimelineView: React.FC<StackTimelineViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Extract stack states from simulation steps
+  
   useEffect(() => {
     if (!simulation) return;
 
