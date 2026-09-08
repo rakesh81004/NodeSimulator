@@ -1,29 +1,19 @@
 import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
 import { initDatabase } from './db/database';
 import authRoutes from './routes/authRoutes';
 import simulationRoutes from './routes/simulationRoutes';
 
-dotenv.config();
-
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
+const DIST_DIR = path.resolve(process.cwd(), 'dist');
 
-// Initialize Database and Tables
 initDatabase();
 
-// Middleware
-app.use(cors({
-  origin: true,
-  credentials: true,
-}));
-
-// Generous body limit for complex simulation JSON and import/export payloads
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-// Request logging in development
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -35,23 +25,37 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'DSA Animator Backend API',
+    service: 'DSA Animator Backend',
     version: '1.0.0',
     schemaVersion: 2,
   });
 });
 
-// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/simulations', simulationRoutes);
 
-// Global Error Handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
+
+app.use((req, res) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  res.status(404).send('Not found');
+});
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Server Error]', err);
   res.status(500).json({
     error: 'Internal Server Error',
@@ -60,6 +64,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 DSA Animator Server running on http://localhost:${PORT}`);
-  console.log(`📊 Persistent Database active at ./data/simulator.db`);
+  console.log(`Node backend running on http://localhost:${PORT}`);
+  console.log(`SQLite database: ./data/simulator.db`);
+  if (fs.existsSync(DIST_DIR)) {
+    console.log(`Serving UI from ./dist`);
+  }
 });
