@@ -97,19 +97,19 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
 
   return (
     <div
-      className={`relative flex flex-col select-none transition-all ${
+      className={`relative flex flex-col select-none transition-all rounded-2xl ${
         isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
       }`}
       style={{
         width: `${node.width || 170}px`,
-        backgroundColor: '#0a0a0a',
-        border: `2px solid ${primaryColor}`,
-        borderRadius: 4,
       }}
     >
       {/* Header - Only show when selected */}
       {isSelected && (
-        <div className="flex items-center justify-between p-2 border-b-2" style={{ borderBottomColor: primaryColor }}>
+        <div
+          className="flex items-center justify-between p-2 mb-1.5 rounded-xl"
+          style={{ backgroundColor: '#0f172a', border: `2px solid ${primaryColor}` }}
+        >
           <span className="font-sans font-bold text-xs text-purple-300 tracking-wide">
             {name}
           </span>
@@ -176,38 +176,43 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
         </div>
       )}
 
-      {/* Open-Top Stack Container with Black Horizontal Dividers */}
+      {/* Open-Top Stack Container: rounded "glass" outline, no top edge */}
       <div
-        className="flex flex-col-reverse items-center border-x-2 border-b-2 border-t-0 bg-black min-h-[110px] justify-start"
-        style={{ borderColor: primaryColor }}
+        className="flex flex-col-reverse items-center justify-start gap-2 px-2.5 pb-2.5 pt-4 min-h-[150px]"
+        style={{
+          borderLeft: `4px solid ${primaryColor}`,
+          borderRight: `4px solid ${primaryColor}`,
+          borderBottom: `4px solid ${primaryColor}`,
+          borderBottomLeftRadius: 18,
+          borderBottomRightRadius: 18,
+          backgroundColor: 'transparent',
+        }}
       >
         {elements.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-slate-500 text-xs font-sans py-6">
-            (empty)
+          <div className="flex-1 flex items-center justify-center text-slate-500 text-xs font-sans italic py-6">
+            empty stack
           </div>
         ) : (
           elements.map((el, idx) => {
             const isTop = idx === elements.length - 1;
+            const customColor = (el as any).color as string | undefined;
+            const bgColor = customColor || (isTop ? adjustColor(primaryColor, 30) : primaryColor);
 
             return (
               <div
                 key={el.id}
                 onDoubleClick={() => isInteractive && setEditingElId(el.id)}
-                className="w-full py-2 px-3 font-sans font-bold text-lg text-center text-white mb-0.5 last:mb-0 flex items-center justify-between"
+                className="w-full py-2.5 font-sans font-bold text-lg text-center text-white flex items-center justify-center rounded-xl shadow-md"
                 style={{
-                  backgroundColor: isTop ? themeColor : primaryColor,
-                  border: '2px solid #000000',
-                  borderRadius: '2px',
+                  backgroundColor: bgColor,
                 }}
               >
-                <span className="text-[10px] font-mono font-bold bg-black text-white px-1.5 py-0.5 rounded">{idx}</span>
-
                 {editingElId === el.id ? (
                   <input
                     type="text"
                     autoFocus
                     onFocus={(e) => e.target.select()}
-                    className="w-14 bg-black/50 text-white font-bold text-center outline-none rounded"
+                    className="w-14 bg-black/30 text-white font-bold text-center outline-none rounded"
                     value={formatDisplayValue(el.value)}
                     onChange={(e) => handleElementChange(el.id, e.target.value)}
                     onBlur={() => setEditingElId(null)}
@@ -216,18 +221,7 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                     }}
                   />
                 ) : (
-                  <span className="flex-1 text-center font-bold">{formatDisplayValue(el.value)}</span>
-                )}
-
-                {isTop ? (
-                  <span 
-                    className="text-[8px] px-1 py-0.2 rounded text-white font-bold uppercase"
-                    style={{ backgroundColor: adjustColor(themeColor, -30) }}
-                  >
-                    TOP
-                  </span>
-                ) : (
-                  <span className="w-4" />
+                  <span>{formatDisplayValue(el.value)}</span>
                 )}
               </div>
             );

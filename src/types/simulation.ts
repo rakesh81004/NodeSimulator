@@ -195,6 +195,16 @@ export interface SimulationSummary {
   step_count: number;
   thumbnail?: string;
   is_public: number;
+  folder_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  color: string;
+  simulation_count: number;
   created_at: string;
   updated_at: string;
 }

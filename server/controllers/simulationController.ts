@@ -12,10 +12,10 @@ import { TEMPLATES } from '../templates/defaultTemplates';
 export async function listSimulations(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
-    const { search, tag } = req.query;
+    const { search, tag, folderId } = req.query;
 
     let sql = `
-      SELECT id, name, description, schema_version, tags, step_count, thumbnail, is_public, created_at, updated_at
+      SELECT id, name, description, schema_version, tags, step_count, thumbnail, is_public, folder_id, created_at, updated_at
       FROM simulations
       WHERE user_id = ?
     `;
@@ -31,6 +31,15 @@ export async function listSimulations(req: AuthenticatedRequest, res: Response) 
       params.push(`%${tag}%`);
     }
 
+    if (folderId && typeof folderId === 'string') {
+      if (folderId === 'none') {
+        sql += ` AND folder_id IS NULL`;
+      } else {
+        sql += ` AND folder_id = ?`;
+        params.push(folderId);
+      }
+    }
+
     sql += ` ORDER BY updated_at DESC`;
 
     const simulations = await query(sql, params);
@@ -44,10 +53,17 @@ export async function listSimulations(req: AuthenticatedRequest, res: Response) 
 export async function createSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
-    const { name, description, templateId } = req.body;
+    const { name, description, templateId, folderId } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Simulation name is required.' });
+    }
+
+    if (folderId) {
+      const folder = await queryOne<any>('SELECT id FROM folders WHERE id = ? AND user_id = ?', [folderId, userId]);
+      if (!folder) {
+        return res.status(400).json({ error: 'Folder not found.' });
+      }
     }
 
     const simId = `sim_${crypto.randomUUID()}`;
@@ -107,8 +123,8 @@ export async function createSimulation(req: AuthenticatedRequest, res: Response)
     const stepCount = simulationData.steps.length;
 
     await execute(
-      `INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count, folder_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         simId,
         userId,
@@ -118,6 +134,7 @@ export async function createSimulation(req: AuthenticatedRequest, res: Response)
         templateId ? 'Template,DSA' : 'Custom',
         dataJson,
         stepCount,
+        folderId || null,
       ]
     );
 
@@ -247,6 +264,35 @@ export async function deleteSimulation(req: AuthenticatedRequest, res: Response)
   } catch (error: any) {
     console.error('[Simulations] Delete error:', error);
     return res.status(500).json({ error: 'Failed to delete simulation.' });
+  }
+}
+
+export async function moveSimulationFolder(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params;
+    const { folderId } = req.body;
+
+    if (folderId) {
+      const folder = await queryOne<any>('SELECT id FROM folders WHERE id = ? AND user_id = ?', [folderId, userId]);
+      if (!folder) {
+        return res.status(400).json({ error: 'Folder not found.' });
+      }
+    }
+
+    const result = await execute(
+      'UPDATE simulations SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      [folderId || null, id, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Simulation not found or access denied.' });
+    }
+
+    return res.json({ message: 'Simulation moved successfully.' });
+  } catch (error: any) {
+    console.error('[Simulations] Move to folder error:', error);
+    return res.status(500).json({ error: 'Failed to move simulation.' });
   }
 }
 

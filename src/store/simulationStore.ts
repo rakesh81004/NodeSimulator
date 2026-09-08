@@ -793,14 +793,17 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
         throw new Error(`Unsupported visual node type: ${type}`);
     }
 
-    const currentStep = simulation.steps[currentStepIndex];
-    const updatedStep: StepModel = {
-      ...currentStep,
-      objects: [...currentStep.objects, newNode],
-    };
-
-    const newSteps = [...simulation.steps];
-    newSteps[currentStepIndex] = updatedStep;
+    // Carry the new object forward into every later step too, so it doesn't
+    // vanish once you move past the step it was created on. Each step gets
+    // its own deep-cloned copy (same id) so later steps can still be edited
+    // independently going forward.
+    const newSteps = simulation.steps.map((step, idx) => {
+      if (idx < currentStepIndex) return step;
+      return {
+        ...step,
+        objects: [...step.objects, idx === currentStepIndex ? newNode : deepClone(newNode)],
+      };
+    });
 
     set({
       simulation: { ...simulation, steps: newSteps },

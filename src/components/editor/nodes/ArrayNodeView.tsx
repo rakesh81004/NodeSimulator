@@ -114,26 +114,10 @@ export const ArrayNodeView: React.FC<Props> = ({
       const temp = nextElements[sourceIndex];
       nextElements[sourceIndex] = nextElements[targetIndex];
       nextElements[targetIndex] = temp;
-      
-      // Update highlight to show swapping
-      const highlightedElements = nextElements.map((el, idx) => {
-        if (idx === targetIndex || idx === sourceIndex) {
-          return { ...el, highlight: 'swapping' as any };
-        }
-        return el;
-      });
-      
+
       updateObject(node.id, {
-        data: { ...node.data, elements: highlightedElements },
+        data: { ...node.data, elements: nextElements },
       } as any);
-      
-      // Remove swapping highlight after short delay
-      setTimeout(() => {
-        const finalElements = highlightedElements.map(el => ({ ...el, highlight: 'none' as any }));
-        updateObject(node.id, {
-          data: { ...node.data, elements: finalElements },
-        } as any);
-      }, 500);
     }
     
     setDraggedCellId(null);
@@ -145,8 +129,7 @@ export const ArrayNodeView: React.FC<Props> = ({
     setDragOverCellId(null);
   };
 
-  const getCellBgColor = (cell: ArrayElement, isSwappingActive?: boolean) => {
-    if (isSwappingActive) return '#ffb300';
+  const getCellBgColor = (cell: ArrayElement) => {
     if ((cell as any).color) return (cell as any).color;
     switch (cell.highlight) {
       case 'active':
@@ -208,7 +191,6 @@ export const ArrayNodeView: React.FC<Props> = ({
           let transformStyle = '';
           let zIndex = 1;
           let isSwappingCell = false;
-          let customGlow = '';
 
           if (isTransitionActive && swappedIndices) {
             const [idxA, idxB] = swappedIndices;
@@ -219,7 +201,6 @@ export const ArrayNodeView: React.FC<Props> = ({
               const arcY = -Math.sin(Math.PI * t) * 36; // Arc upward
               const scale = 1 + Math.sin(Math.PI * t) * 0.18;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 24px #ffb300, 0 8px 16px rgba(0,0,0,0.5)';
             } else if (idx === idxB) {
               isSwappingCell = true;
               zIndex = 40;
@@ -227,7 +208,6 @@ export const ArrayNodeView: React.FC<Props> = ({
               const arcY = Math.sin(Math.PI * t) * 36; // Arc downward
               const scale = 1 + Math.sin(Math.PI * t) * 0.18;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 24px #ffb300, 0 8px 16px rgba(0,0,0,0.5)';
             }
           } else if (isTransitionActive && elementMoves) {
             const move = elementMoves.find((m) => m.fromIndex === idx);
@@ -238,13 +218,12 @@ export const ArrayNodeView: React.FC<Props> = ({
               const arcY = (idx % 2 === 0 ? -1 : 1) * Math.sin(Math.PI * t) * 32;
               const scale = 1 + Math.sin(Math.PI * t) * 0.15;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 20px #ffb300';
             }
           }
 
           // Check for value replacement crossfade
           const valChange = valueChanges?.find((v) => v.index === idx);
-          const bgColor = getCellBgColor(cell, isSwappingCell);
+          const bgColor = getCellBgColor(cell);
 
           return (
             <div
@@ -274,11 +253,10 @@ export const ArrayNodeView: React.FC<Props> = ({
                   height: `${cellSize}px`,
                   backgroundColor: bgColor,
                   fontSize: '24px',
-                  border: isSwappingCell ? '2px solid #ffffff' : '2px solid #000000',
+                  border: '2px solid #000000',
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
-                  boxShadow: customGlow || undefined,
-                  transition: !isTransitionActive ? 'transform 0.2s ease, box-shadow 0.2s ease' : undefined,
+                  boxShadow: isSwappingCell ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,
                 }}
                 draggable={isInteractive}
                 onDragStart={(e) => handleDragStart(e, cell.id)}
@@ -313,7 +291,7 @@ export const ArrayNodeView: React.FC<Props> = ({
                     }}
                     onClick={(e) => e.stopPropagation()}
                   />
-                ) : valChange && isTransitionActive ? (
+                ) : valChange && isTransitionActive && !isSwappingCell ? (
                   <div className="relative w-full h-full flex items-center justify-center">
                     {/* Old value fading out */}
                     <span

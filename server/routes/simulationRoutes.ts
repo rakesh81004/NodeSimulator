@@ -6,6 +6,7 @@ import {
   updateSimulation,
   deleteSimulation,
   duplicateSimulation,
+  moveSimulationFolder,
   exportSimulation,
   importSimulation,
   getTemplatesList,
@@ -26,6 +27,7 @@ router.get('/:id', getSimulation);
 router.put('/:id', updateSimulation);
 router.delete('/:id', deleteSimulation);
 router.post('/:id/duplicate', duplicateSimulation);
+router.patch('/:id/folder', moveSimulationFolder);
 router.get('/:id/export', exportSimulation);
 
 export default router;

@@ -7,9 +7,10 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (simId: string) => void;
+  folderId?: string | null;
 }
 
-export const CreateSimulationModal: React.FC<Props> = ({ isOpen, onClose, onSuccess }) => {
+export const CreateSimulationModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, folderId }) => {
   const { setSimulation } = useSimulationStore();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -57,7 +58,8 @@ export const CreateSimulationModal: React.FC<Props> = ({ isOpen, onClose, onSucc
       const { simulation } = await api.createSimulation(
         name.trim(),
         description.trim(),
-        selectedTemplate || undefined
+        selectedTemplate || undefined,
+        folderId || undefined
       );
       setSimulation(simulation);
       onSuccess(simulation.id);

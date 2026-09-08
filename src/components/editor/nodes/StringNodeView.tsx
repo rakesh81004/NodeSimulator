@@ -118,26 +118,10 @@ export const StringNodeView: React.FC<Props> = ({
       const temp = nextChars[sourceIndex];
       nextChars[sourceIndex] = nextChars[targetIndex];
       nextChars[targetIndex] = temp;
-      
-      // Update highlight to show swapping
-      const highlightedChars = nextChars.map((ch, idx) => {
-        if (idx === targetIndex || idx === sourceIndex) {
-          return { ...ch, highlight: 'swapping' as any };
-        }
-        return ch;
-      });
-      
+
       updateObject(node.id, {
-        data: { ...node.data, characters: highlightedChars },
+        data: { ...node.data, characters: nextChars },
       } as any);
-      
-      // Remove swapping highlight after short delay
-      setTimeout(() => {
-        const finalChars = highlightedChars.map(ch => ({ ...ch, highlight: 'none' as any }));
-        updateObject(node.id, {
-          data: { ...node.data, characters: finalChars },
-        } as any);
-      }, 500);
     }
     
     setDraggedCharId(null);
@@ -203,7 +187,6 @@ export const StringNodeView: React.FC<Props> = ({
           let transformStyle = '';
           let zIndex = 1;
           let isSwappingChar = false;
-          let customGlow = '';
 
           if (isTransitionActive && swappedIndices) {
             const [idxA, idxB] = swappedIndices;
@@ -214,7 +197,6 @@ export const StringNodeView: React.FC<Props> = ({
               const arcY = -Math.sin(Math.PI * t) * 36;
               const scale = 1 + Math.sin(Math.PI * t) * 0.18;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 24px #ffb300, 0 8px 16px rgba(0,0,0,0.5)';
             } else if (idx === idxB) {
               isSwappingChar = true;
               zIndex = 40;
@@ -222,7 +204,6 @@ export const StringNodeView: React.FC<Props> = ({
               const arcY = Math.sin(Math.PI * t) * 36;
               const scale = 1 + Math.sin(Math.PI * t) * 0.18;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 24px #ffb300, 0 8px 16px rgba(0,0,0,0.5)';
             }
           } else if (isTransitionActive && elementMoves) {
             const move = elementMoves.find((m) => m.fromIndex === idx);
@@ -233,12 +214,11 @@ export const StringNodeView: React.FC<Props> = ({
               const arcY = (idx % 2 === 0 ? -1 : 1) * Math.sin(Math.PI * t) * 32;
               const scale = 1 + Math.sin(Math.PI * t) * 0.15;
               transformStyle = `translate(${easeT * deltaX}px, ${arcY}px) scale(${scale})`;
-              customGlow = '0 0 20px #ffb300';
             }
           }
 
           const valChange = valueChanges?.find((v) => v.index === idx);
-          const bgColor = isSwappingChar ? '#ffb300' : getCellBgColor(ch);
+          const bgColor = getCellBgColor(ch);
 
           return (
             <div key={ch.id} className="relative flex flex-col items-center group" style={{ zIndex }}>
@@ -264,11 +244,10 @@ export const StringNodeView: React.FC<Props> = ({
                   height: `${cellSize}px`,
                   backgroundColor: bgColor,
                   fontSize: '24px',
-                  border: isSwappingChar ? '2px solid #ffffff' : '2px solid #000000',
+                  border: '2px solid #000000',
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
-                  boxShadow: customGlow || undefined,
-                  transition: !isTransitionActive ? 'transform 0.2s ease, box-shadow 0.2s ease' : undefined,
+                  boxShadow: isSwappingChar ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,
                 }}
                 draggable={isInteractive}
                 onDragStart={(e) => handleDragStart(e, ch.id)}
@@ -304,7 +283,7 @@ export const StringNodeView: React.FC<Props> = ({
                     }}
                     onClick={(e) => e.stopPropagation()}
                   />
-                ) : valChange && isTransitionActive ? (
+                ) : valChange && isTransitionActive && !isSwappingChar ? (
                   <div className="relative w-full h-full flex items-center justify-center">
                     <span
                       className="absolute font-sans font-bold text-white text-2xl transition-opacity"

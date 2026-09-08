@@ -22,7 +22,7 @@ export const VariableNodeView: React.FC<Props> = ({
   transitionProgress = 1.0,
 }) => {
   const { simulation, currentStepIndex, updateObject } = useSimulationStore();
-  const { themeColor, separatorColor } = useTheme();
+  const { themeColor } = useTheme();
   const [editingValue, setEditingValue] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -72,18 +72,26 @@ export const VariableNodeView: React.FC<Props> = ({
     { label: 'Amber', color: '#ffb300' },
   ];
 
-  const bgColor = (node.style as any)?.backgroundColor || (isResult ? '#00c853' : themeColor);
+  const accentColor = (node.style as any)?.backgroundColor || (isResult ? '#00c853' : themeColor);
+
+  // Eased slide progress for the old->new value transition
+  const slideT = transitionProgress;
+  const easeSlide = slideT < 0.5 ? 2 * slideT * slideT : -1 + (4 - 2 * slideT) * slideT;
+  const oldValueStr = formatDisplayValue(diffOldValue);
+  const newValueStr = formatDisplayValue(diffNewValue);
+  const widerValueStr = oldValueStr.length >= newValueStr.length ? oldValueStr : newValueStr;
 
   return (
     <div
-      className={`relative inline-flex items-center gap-1 px-2 py-1 select-none transition-all ${
+      className={`relative inline-flex items-center gap-1.5 px-4 py-2.5 select-none transition-all ${
         isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
       }`}
       style={{
-        backgroundColor: bgColor,
-        border: `2px solid ${separatorColor}`,
-        borderRadius: 4,
-        color: '#ffffff',
+        backgroundColor: accentColor,
+        border: '2px solid #000000',
+        borderRadius: 12,
+        color: '#f8fafc',
+        boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',
       }}
     >
       {/* Variable Name (Click to edit) */}
@@ -92,7 +100,7 @@ export const VariableNodeView: React.FC<Props> = ({
           type="text"
           autoFocus
           onFocus={(e) => e.target.select()}
-          className="w-16 bg-black/50 text-white font-bold px-1 rounded outline-none border border-black text-sm"
+          className="w-16 bg-slate-950 text-white font-bold px-1 rounded outline-none border border-slate-700 text-base"
           value={name}
           onChange={(e) => handleNameChange(e.target.value)}
           onBlur={() => setEditingName(false)}
@@ -102,7 +110,7 @@ export const VariableNodeView: React.FC<Props> = ({
         />
       ) : (
         <span
-          className="text-sm font-sans font-bold cursor-pointer hover:underline"
+          className="text-base font-sans font-bold cursor-pointer hover:underline"
           onClick={(e) => {
             e.stopPropagation();
             if (isInteractive) setEditingName(true);
@@ -113,28 +121,34 @@ export const VariableNodeView: React.FC<Props> = ({
         </span>
       )}
 
-      <span className="text-black/60 mx-0.5 font-bold text-sm">=</span>
+      <span className="mx-0.5 font-bold text-base text-white">=</span>
 
       {/* Variable Value (With Strikethrough & No Quotes) */}
       {hasTransitionDiff ? (
-        <div className="flex items-center gap-1">
+        <div className="relative inline-block overflow-hidden align-middle" style={{ height: '1.4em' }}>
+          {/* Invisible sizer reserves width for the wider of the two values */}
+          <span className="invisible font-bold text-base whitespace-nowrap">{widerValueStr}</span>
+
+          {/* Old value slides up and out, like the outgoing frame in an Instagram story */}
           <span
-            className="line-through text-black/70 font-bold transition-all text-xs"
+            className="absolute inset-0 flex items-center font-bold text-base text-white whitespace-nowrap"
             style={{
-              opacity: 1 - (transitionProgress * 0.4),
-              transform: `scale(${1 - (transitionProgress * 0.1)})`,
+              transform: `translateY(${-easeSlide * 100}%)`,
+              opacity: 1 - easeSlide,
             }}
           >
-            {formatDisplayValue(diffOldValue)}
+            {oldValueStr}
           </span>
+
+          {/* New value slides up into place from below */}
           <span
-            className="text-white font-bold transition-all text-sm"
+            className="absolute inset-0 flex items-center font-bold text-base text-white whitespace-nowrap"
             style={{
-              opacity: transitionProgress,
-              transform: `translateY(${(1 - transitionProgress) * 3}px) scale(${0.95 + (transitionProgress * 0.05)})`,
+              transform: `translateY(${(1 - easeSlide) * 100}%)`,
+              opacity: easeSlide,
             }}
           >
-            {formatDisplayValue(diffNewValue)}
+            {newValueStr}
           </span>
         </div>
       ) : editingValue && isInteractive ? (
@@ -142,7 +156,7 @@ export const VariableNodeView: React.FC<Props> = ({
           type="text"
           autoFocus
           onFocus={(e) => e.target.select()}
-          className="w-20 bg-black/50 text-white font-bold px-1 py-0.5 rounded outline-none border border-black text-center text-sm"
+          className="w-20 bg-slate-950 text-white font-bold px-1 py-0.5 rounded outline-none border border-slate-700 text-center text-base"
           value={formatDisplayValue(value)}
           onChange={(e) => handleValueChange(e.target.value)}
           onBlur={() => setEditingValue(false)}
@@ -155,7 +169,7 @@ export const VariableNodeView: React.FC<Props> = ({
           {/* Step-to-Step Strikethrough Badge */}
           {hasStepHistory && (
             <span
-              className="line-through text-black/70 font-mono text-xs px-1 rounded bg-black/20"
+              className="line-through text-white/60 font-mono text-xs px-1 rounded bg-black/20"
               title={`Previous step value was ${formatDisplayValue(prevStepValue)}`}
             >
               {formatDisplayValue(prevStepValue)}
@@ -164,7 +178,7 @@ export const VariableNodeView: React.FC<Props> = ({
 
           {/* Active Current Value */}
           <span
-            className="text-white font-bold cursor-pointer transition-all text-sm"
+            className="text-white font-bold cursor-pointer transition-all text-base"
             onClick={(e) => {
               e.stopPropagation();
               if (isInteractive) setEditingValue(true);

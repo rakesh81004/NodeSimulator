@@ -19,6 +19,8 @@ import {
   X,
   Edit3,
   Palette,
+  Plus,
+  LogOut,
 } from 'lucide-react';
 
 interface Props {
@@ -71,6 +73,13 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     { label: 'Purple', color: '#8b5cf6', highlight: 'window' },
     { label: 'Red', color: '#f43f5e', highlight: 'mismatch' },
     { label: 'Orange', color: '#ff9800', highlight: 'swapping' },
+  ];
+
+  // White is safe for accents/outlines (pointers, ranges, stack border) drawn on the
+  // dark canvas, but omitted from `colorPresets` since those fill a box behind white text.
+  const accentColorPresets = [
+    ...colorPresets,
+    { label: 'White', color: '#ffffff', highlight: 'none' },
   ];
 
   return (
@@ -366,6 +375,167 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
             </div>
           )}
 
+          {/* Stack Node Configuration */}
+          {selectedNode.type === 'stack' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-purple-400">Stack & Theme</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Stack Name (Optional)</label>
+                <input
+                  type="text"
+                  value={(selectedNode as StackVisualNode).data.name || ''}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as StackVisualNode).data, name: e.target.value },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-purple-400 outline-none font-mono"
+                  placeholder="e.g. st"
+                />
+              </div>
+
+              {/* Whole Stack Values Editor (bottom to top) */}
+              <div>
+                <label className="text-[11px] text-slate-400 flex items-center justify-between mb-1">
+                  <span>Whole Stack (Bottom → Top, Comma Separated)</span>
+                  <Edit3 className="w-3 h-3 text-purple-400" />
+                </label>
+                <textarea
+                  rows={2}
+                  value={(selectedNode as StackVisualNode).data.elements.map((el) => String(el.value).replace(/^['"]|['"]$/g, '')).join(', ')}
+                  onChange={(e) => {
+                    const rawTokens = e.target.value
+                      .split(/[, ]+/)
+                      .map((t) => t.trim().replace(/^['"]|['"]$/g, ''))
+                      .filter((t) => t.length > 0);
+
+                    const existing = (selectedNode as StackVisualNode).data.elements;
+                    const nextElements: ArrayElement[] = rawTokens.map((tok, idx) => {
+                      const numVal = Number(tok);
+                      const val = !isNaN(numVal) ? numVal : tok;
+                      return {
+                        id: existing[idx]?.id || `stk_${selectedNode.id}_${Date.now()}_${idx}`,
+                        value: val,
+                        highlight: existing[idx]?.highlight || 'none',
+                      };
+                    });
+
+                    const newHeight = Math.max(selectedNode.height, (nextElements.length * 44) + 60);
+                    updateObject(selectedNode.id, {
+                      height: newHeight,
+                      data: { ...(selectedNode as StackVisualNode).data, elements: nextElements },
+                    } as any);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-purple-400 outline-none font-mono resize-none leading-relaxed"
+                  placeholder="e.g. 10, 20, 30"
+                />
+              </div>
+
+              {/* Push / Pop Controls */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Push / Pop</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const elements = (selectedNode as StackVisualNode).data.elements;
+                      const newEl: ArrayElement = {
+                        id: `stk_${selectedNode.id}_${Date.now()}`,
+                        value: String.fromCharCode(65 + elements.length),
+                        highlight: 'pushing',
+                      };
+                      const nextElements = [...elements, newEl];
+                      const newHeight = Math.max(selectedNode.height, (nextElements.length * 44) + 60);
+                      updateObject(selectedNode.id, {
+                        height: newHeight,
+                        data: {
+                          ...(selectedNode as StackVisualNode).data,
+                          elements: nextElements,
+                          lastAction: 'push',
+                          lastPoppedValue: undefined,
+                        },
+                      } as any);
+                    }}
+                    className="flex-1 py-1.5 px-2 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs flex items-center justify-center gap-1.5 font-semibold transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Push
+                  </button>
+                  <button
+                    type="button"
+                    disabled={(selectedNode as StackVisualNode).data.elements.length === 0}
+                    onClick={() => {
+                      const elements = (selectedNode as StackVisualNode).data.elements;
+                      if (elements.length === 0) return;
+                      const popped = elements[elements.length - 1];
+                      const nextElements = elements.slice(0, -1);
+                      updateObject(selectedNode.id, {
+                        data: {
+                          ...(selectedNode as StackVisualNode).data,
+                          elements: nextElements,
+                          lastAction: 'pop',
+                          lastPoppedValue: popped.value,
+                        },
+                      } as any);
+                    }}
+                    className="flex-1 py-1.5 px-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs flex items-center justify-center gap-1.5 font-semibold transition-colors"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Pop
+                  </button>
+                </div>
+              </div>
+
+              {/* Apply Color Theme across Stack */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Set Stack Outline Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, backgroundColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Per-Element Color */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Set Entire Stack Elements Color</label>
+                <div className="flex items-center gap-2">
+                  {colorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        const nextEls = (selectedNode as StackVisualNode).data.elements.map((el) => ({
+                          ...el,
+                          color: p.color,
+                          highlight: p.highlight as any,
+                        }));
+                        updateObject(selectedNode.id, {
+                          data: { ...(selectedNode as StackVisualNode).data, elements: nextEls },
+                        } as any);
+                      }}
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Pointer Node Configuration */}
           {selectedNode.type === 'pointer' && (
             <div className="flex flex-col gap-3">
@@ -383,6 +553,28 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-amber-400 outline-none font-mono font-bold"
                 />
               </div>
+
+              {/* Pointer Color */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Pointer Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          data: { ...(selectedNode as PointerVisualNode).data, color: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Attach Target (Array/String/Stack)</label>
                 <select
@@ -616,7 +808,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Color Accent</label>
                 <div className="flex items-center gap-2">
-                  {colorPresets.map((p) => (
+                  {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
                       type="button"

@@ -62,13 +62,13 @@ export function calculatePointerPosition(
       // Arrow points down to the top of cell
       return {
         x: cellCenter.x - (pointerW / 2),
-        y: targetNode.y - pointerH - 2,
+        y: targetNode.y - pointerH - 8,
       };
     case 'up':
       // Arrow points up to the bottom of cell
       return {
         x: cellCenter.x - (pointerW / 2),
-        y: targetNode.y + targetNode.height + 2,
+        y: targetNode.y + targetNode.height + 12,
       };
     case 'left':
       return {

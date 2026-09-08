@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../persistence/api';
-import { SimulationSummary } from '../../types/simulation';
+import { Folder as FolderType, SimulationSummary } from '../../types/simulation';
 import { useAuthStore } from '../../store/authStore';
 import { SimulationCard } from './SimulationCard';
 import { CreateSimulationModal } from './CreateSimulationModal';
+import { CreateFolderModal } from './CreateFolderModal';
+import { FolderSidebar } from './FolderSidebar';
 import { ImportModal } from './ImportModal';
 import { CodeImportModal } from './CodeImportModal';
 import { LoginModal } from '../auth/LoginModal';
@@ -29,11 +31,15 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
   const { user, logout, token } = useAuthStore();
   const { setSimulation } = useSimulationStore();
   const [simulations, setSimulations] = useState<SimulationSummary[]>([]);
+  const [folders, setFolders] = useState<FolderType[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null); // null = All, 'none' = Uncategorized
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCodeImportOpen, setIsCodeImportOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -47,8 +53,15 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
     }
     setIsLoading(true);
     try {
-      const { simulations: data } = await api.listSimulations(searchQuery || undefined);
+      const { simulations: data } = await api.listSimulations(
+        searchQuery || undefined,
+        undefined,
+        selectedFolderId || undefined
+      );
       setSimulations(data);
+      if (!selectedFolderId && !searchQuery) {
+        setTotalCount(data.length);
+      }
     } catch (err) {
       console.error('Failed to list simulations', err);
     } finally {
@@ -56,9 +69,66 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
     }
   };
 
+  const fetchFolders = async () => {
+    if (!token) {
+      setFolders([]);
+      return;
+    }
+    try {
+      const { folders: data } = await api.listFolders();
+      setFolders(data);
+    } catch (err) {
+      console.error('Failed to list folders', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchFolders();
+  }, [token]);
+
   useEffect(() => {
     fetchSimulations();
-  }, [token, searchQuery]);
+  }, [token, searchQuery, selectedFolderId]);
+
+  const handleCreateFolder = (folder: FolderType) => {
+    setFolders((prev) => [...prev, folder].sort((a, b) => a.name.localeCompare(b.name)));
+  };
+
+  const handleRenameFolder = async (folder: FolderType) => {
+    const name = window.prompt('Rename folder', folder.name);
+    if (!name || !name.trim() || name.trim() === folder.name) return;
+    try {
+      await api.renameFolder(folder.id, name.trim());
+      await fetchFolders();
+    } catch (err) {
+      alert('Failed to rename folder');
+    }
+  };
+
+  const handleDeleteFolder = async (folder: FolderType) => {
+    if (!window.confirm(`Delete "${folder.name}"? Its simulations will move to Uncategorized.`)) return;
+    try {
+      await api.deleteFolder(folder.id);
+      if (selectedFolderId === folder.id) setSelectedFolderId(null);
+      await fetchFolders();
+      await fetchSimulations();
+    } catch (err) {
+      alert('Failed to delete folder');
+    }
+  };
+
+  // Only a concrete folder id can be used as a creation target ('none' means Uncategorized).
+  const targetFolderId = selectedFolderId && selectedFolderId !== 'none' ? selectedFolderId : undefined;
+
+  const handleMoveFolder = async (id: string, folderId: string | null) => {
+    try {
+      await api.moveSimulationToFolder(id, folderId);
+      await fetchFolders();
+      await fetchSimulations();
+    } catch (err) {
+      alert('Failed to move simulation');
+    }
+  };
 
   const handleDuplicate = async (id: string) => {
     try {
@@ -86,7 +156,12 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
       return;
     }
     try {
-      const { simulation } = await api.createSimulation(title, 'Quick start template', templateId);
+      const { simulation } = await api.createSimulation(
+        title,
+        'Quick start template',
+        templateId,
+        targetFolderId
+      );
       onOpenSimulation(simulation.id);
     } catch (err) {
       alert('Failed to create template simulation');
@@ -100,7 +175,7 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
     }
     try {
       const gen = simulateValidParentheses('{[()]}');
-      const { simulation: newSim } = await api.createSimulation(gen.title, gen.description);
+      const { simulation: newSim } = await api.createSimulation(gen.title, gen.description, undefined, targetFolderId);
       const fullSim = {
         ...newSim,
         name: gen.title,
@@ -266,77 +341,114 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
           </div>
         </div>
 
-        {/* Section Header: Search */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base md:text-lg font-bold text-slate-100">My Simulations</h3>
-            <p className="text-xs text-slate-400">
-              {simulations.length} {simulations.length === 1 ? 'simulation' : 'simulations'} saved in persistent database
-            </p>
-          </div>
+        {/* Folders + Simulations Layout */}
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8">
+          {user && (
+            <FolderSidebar
+              folders={folders}
+              selectedFolderId={selectedFolderId}
+              totalCount={totalCount}
+              onSelectFolder={setSelectedFolderId}
+              onCreateFolder={() => setIsCreateFolderOpen(true)}
+              onRenameFolder={handleRenameFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onDropSimulation={handleMoveFolder}
+            />
+          )}
 
-          <div className="flex items-center gap-3">
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search simulations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-surface-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 outline-none"
-              />
+          <div className="flex-1 min-w-0 flex flex-col gap-6">
+            {/* Section Header: Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base md:text-lg font-bold text-slate-100">
+                  {selectedFolderId === null
+                    ? 'My Simulations'
+                    : selectedFolderId === 'none'
+                    ? 'Uncategorized'
+                    : folders.find((f) => f.id === selectedFolderId)?.name || 'My Simulations'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {simulations.length} {simulations.length === 1 ? 'simulation' : 'simulations'} saved in persistent database
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search simulations..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-surface-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* Simulations List */}
+            {isLoading ? (
+              <div className="flex flex-col gap-2">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-12 rounded-full bg-surface-900/40 border border-slate-800 animate-pulse"
+                  />
+                ))}
+              </div>
+            ) : simulations.length === 0 ? (
+              <div className="py-12 md:py-16 px-4 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center text-center bg-surface-900/20">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-3">
+                  <Layers className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-slate-200 mb-1">
+                  {searchQuery ? 'No simulations match your search' : 'No simulations here yet'}
+                </h4>
+                <p className="text-xs text-slate-500 max-w-sm mb-5">
+                  Import a Java DSA algorithm or create your first visual dry run.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!user) setIsLoginOpen(true);
+                      else setIsCodeImportOpen(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-glow-indigo transition-all flex items-center gap-2"
+                  >
+                    <Code2 className="w-4 h-4" />
+                    <span>Import Code & Run</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!user) setIsLoginOpen(true);
+                      else setIsCreateOpen(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-semibold transition-all flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Custom Blank</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {simulations.map((sim) => (
+                  <SimulationCard
+                    key={sim.id}
+                    simulation={sim}
+                    folders={folders}
+                    onOpen={onOpenSimulation}
+                    onDuplicate={handleDuplicate}
+                    onDelete={handleDelete}
+                    onMoveFolder={handleMoveFolder}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Simulations Grid */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-40 rounded-2xl bg-surface-900/40 border border-slate-800 animate-pulse"
-              />
-            ))}
-          </div>
-        ) : simulations.length === 0 ? (
-          <div className="py-12 md:py-16 px-4 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center text-center bg-surface-900/20">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-3">
-              <Layers className="w-6 h-6" />
-            </div>
-            <h4 className="text-base font-bold text-slate-200 mb-1">
-              {searchQuery ? 'No simulations match your search' : 'No simulations created yet'}
-            </h4>
-            <p className="text-xs text-slate-500 max-w-sm mb-5">
-              Import a Java DSA algorithm or create your first visual dry run.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!user) setIsLoginOpen(true);
-                  else setIsCodeImportOpen(true);
-                }}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-glow-indigo transition-all flex items-center gap-2"
-              >
-                <Code2 className="w-4 h-4" />
-                <span>Import Code & Run</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {simulations.map((sim) => (
-              <SimulationCard
-                key={sim.id}
-                simulation={sim}
-                onOpen={onOpenSimulation}
-                onDuplicate={handleDuplicate}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        )}
       </main>
 
       {/* Modals */}
@@ -350,6 +462,13 @@ export const DashboardView: React.FC<Props> = ({ onOpenSimulation }) => {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onSuccess={(id) => onOpenSimulation(id)}
+        folderId={targetFolderId}
+      />
+
+      <CreateFolderModal
+        isOpen={isCreateFolderOpen}
+        onClose={() => setIsCreateFolderOpen(false)}
+        onSuccess={handleCreateFolder}
       />
 
       <ImportModal

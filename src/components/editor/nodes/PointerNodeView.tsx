@@ -27,7 +27,7 @@ export const PointerNodeView: React.FC<Props> = ({ node, isSelected, isInteracti
   const isUp = direction === 'up';
 
   const renderArrowIcon = () => {
-    const iconStyle = { color: '#ffeb3b' }; // Bright yellow arrow like in user's image
+    const iconStyle = { color: pointerColor };
     switch (direction) {
       case 'up':
         return <ArrowUp className="w-6 h-6 stroke-[3]" style={iconStyle} />;

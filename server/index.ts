@@ -4,6 +4,7 @@ import fs from 'fs';
 import { initDatabase } from './db/database';
 import authRoutes from './routes/authRoutes';
 import simulationRoutes from './routes/simulationRoutes';
+import folderRoutes from './routes/folderRoutes';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -36,6 +37,7 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/simulations', simulationRoutes);
+app.use('/api/folders', folderRoutes);
 
 if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));

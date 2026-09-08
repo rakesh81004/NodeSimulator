@@ -392,6 +392,18 @@ export const Canvas: React.FC = () => {
       return { ...node, opacity: transitionProgress };
     }
 
+    // Unchanged pointers/ranges must stay anchored to their target cell while
+    // something else animates (e.g. an array swap) instead of snapping to
+    // their raw stored x/y, which drifts once anything else on the canvas moves.
+    if (node.type === 'pointer') {
+      const anchoredPos = calculatePointerPosition(node as PointerVisualNode, objects);
+      return { ...node, x: anchoredPos.x, y: anchoredPos.y, opacity: 1 };
+    }
+    if (node.type === 'range') {
+      const rangePos = calculateRangePosition(node as RangeVisualNode, objects);
+      return { ...node, x: rangePos.x, y: rangePos.y, width: rangePos.width, height: rangePos.height, opacity: 1 };
+    }
+
     return { ...node, opacity: 1 };
   };
 

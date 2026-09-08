@@ -97,6 +97,19 @@ export async function initDatabase() {
   `);
 
   await execute(`
+    CREATE TABLE IF NOT EXISTS folders (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      color VARCHAR(20) DEFAULT '#6366f1',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_folders_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await execute(`
     CREATE TABLE IF NOT EXISTS simulations (
       id VARCHAR(64) PRIMARY KEY,
       user_id VARCHAR(64) NOT NULL,
@@ -108,12 +121,22 @@ export async function initDatabase() {
       step_count INT DEFAULT 1,
       thumbnail LONGTEXT,
       is_public TINYINT DEFAULT 0,
+      folder_id VARCHAR(64) NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       CONSTRAINT fk_simulations_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+
+  // Older databases created before folders existed won't have this column yet.
+  await alterIgnoreDuplicate(
+    'ALTER TABLE simulations ADD COLUMN folder_id VARCHAR(64) NULL'
+  );
+  await alterIgnoreDuplicate(
+    `ALTER TABLE simulations ADD CONSTRAINT fk_simulations_folder
+       FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL`
+  );
 
   await execute(`
     CREATE TABLE IF NOT EXISTS simulation_backups (
@@ -138,6 +161,12 @@ export async function initDatabase() {
   await createIndexIgnoreDuplicate(
     'CREATE INDEX idx_backups_sim_id ON simulation_backups(simulation_id)'
   );
+  await createIndexIgnoreDuplicate(
+    'CREATE INDEX idx_folders_user_id ON folders(user_id)'
+  );
+  await createIndexIgnoreDuplicate(
+    'CREATE INDEX idx_simulations_folder_id ON simulations(folder_id)'
+  );
 
   const ping = await queryOne<RowDataPacket>('SELECT 1 AS ok');
   if (!ping) {
@@ -152,5 +181,15 @@ async function createIndexIgnoreDuplicate(sql: string) {
     await execute(sql);
   } catch (err: any) {
     if (err?.code !== 'ER_DUP_KEYNAME') throw err;
+  }
+}
+
+async function alterIgnoreDuplicate(sql: string) {
+  try {
+    await execute(sql);
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME' && err?.code !== 'ER_DUP_KEYNAME' && err?.code !== 'ER_FK_DUP_NAME') {
+      throw err;
+    }
   }
 }
