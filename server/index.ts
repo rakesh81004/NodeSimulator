@@ -9,8 +9,6 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const DIST_DIR = path.resolve(process.cwd(), 'dist');
 
-initDatabase();
-
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -32,6 +30,7 @@ app.get('/api/health', (_req, res) => {
     service: 'DSA Animator Backend',
     version: '1.0.0',
     schemaVersion: 2,
+    database: 'mysql',
   });
 });
 
@@ -63,10 +62,25 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Node backend running on http://localhost:${PORT}`);
-  console.log(`SQLite database: ./data/simulator.db`);
-  if (fs.existsSync(DIST_DIR)) {
-    console.log(`Serving UI from ./dist`);
+async function start() {
+  try {
+    await initDatabase();
+  } catch (err: any) {
+    console.error('[DB] Could not connect to MySQL.');
+    console.error(err?.message || err);
+    console.error('Create a .env file from .env.example and start MySQL on this PC. See README.');
+    process.exit(1);
   }
-});
+
+  app.listen(PORT, () => {
+    const host = process.env.MYSQL_HOST || '127.0.0.1';
+    const dbName = process.env.MYSQL_DATABASE || 'node_simulator';
+    console.log(`Node backend running on http://localhost:${PORT}`);
+    console.log(`MySQL: ${host}/${dbName}`);
+    if (fs.existsSync(DIST_DIR)) {
+      console.log('Serving UI from ./dist');
+    }
+  });
+}
+
+start();

@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import crypto from 'crypto';
-import { db } from '../db/database';
+import { execute, query, queryOne, withTransaction } from '../db/database';
 import { AuthenticatedRequest } from '../auth/authMiddleware';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -9,12 +9,12 @@ import {
 } from '../migrations/migrationRunner';
 import { TEMPLATES } from '../templates/defaultTemplates';
 
-export function listSimulations(req: AuthenticatedRequest, res: Response) {
+export async function listSimulations(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { search, tag } = req.query;
 
-    let query = `
+    let sql = `
       SELECT id, name, description, schema_version, tags, step_count, thumbnail, is_public, created_at, updated_at
       FROM simulations
       WHERE user_id = ?
@@ -22,18 +22,18 @@ export function listSimulations(req: AuthenticatedRequest, res: Response) {
     const params: any[] = [userId];
 
     if (search && typeof search === 'string') {
-      query += ` AND (name LIKE ? OR description LIKE ?)`;
+      sql += ` AND (name LIKE ? OR description LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`);
     }
 
     if (tag && typeof tag === 'string') {
-      query += ` AND tags LIKE ?`;
+      sql += ` AND tags LIKE ?`;
       params.push(`%${tag}%`);
     }
 
-    query += ` ORDER BY updated_at DESC`;
+    sql += ` ORDER BY updated_at DESC`;
 
-    const simulations = db.prepare(query).all(...params);
+    const simulations = await query(sql, params);
     return res.json({ simulations });
   } catch (error: any) {
     console.error('[Simulations] List error:', error);
@@ -41,7 +41,7 @@ export function listSimulations(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function createSimulation(req: AuthenticatedRequest, res: Response) {
+export async function createSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { name, description, templateId } = req.body;
@@ -76,7 +76,6 @@ export function createSimulation(req: AuthenticatedRequest, res: Response) {
         })),
       };
     } else {
-      // Default empty simulation with Step 1
       simulationData = {
         id: simId,
         name: name.trim(),
@@ -107,18 +106,19 @@ export function createSimulation(req: AuthenticatedRequest, res: Response) {
     const dataJson = JSON.stringify(simulationData);
     const stepCount = simulationData.steps.length;
 
-    db.prepare(`
-      INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      simId,
-      userId,
-      simulationData.name,
-      simulationData.description,
-      CURRENT_SCHEMA_VERSION,
-      templateId ? 'Template,DSA' : 'Custom',
-      dataJson,
-      stepCount
+    await execute(
+      `INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        simId,
+        userId,
+        simulationData.name,
+        simulationData.description,
+        CURRENT_SCHEMA_VERSION,
+        templateId ? 'Template,DSA' : 'Custom',
+        dataJson,
+        stepCount,
+      ]
     );
 
     return res.status(201).json({
@@ -131,40 +131,39 @@ export function createSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function getSimulation(req: AuthenticatedRequest, res: Response) {
+export async function getSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
 
-    const row: any = db.prepare(`
-      SELECT * FROM simulations
-      WHERE id = ? AND (user_id = ? OR is_public = 1)
-    `).get(id, userId);
+    const row = await queryOne<any>(
+      `SELECT * FROM simulations
+       WHERE id = ? AND (user_id = ? OR is_public = 1)`,
+      [id, userId]
+    );
 
     if (!row) {
       return res.status(404).json({ error: 'Simulation not found.' });
     }
 
-    // Run schema migration if database contains an older schema version
     const { data, migrated } = migrateSimulationPayload(row.data);
 
-    // If migrated, safely update database representation with backup snapshot
     if (migrated) {
       console.log(`[Simulations] Auto-migrating simulation ${id} from v${row.schema_version} to v${CURRENT_SCHEMA_VERSION}`);
-      
       const backupId = `bkp_${crypto.randomUUID()}`;
-      db.transaction(() => {
-        db.prepare(`
-          INSERT INTO simulation_backups (id, simulation_id, schema_version, data, reason)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(backupId, id, row.schema_version, row.data, 'AUTO_MIGRATION_ON_READ');
-
-        db.prepare(`
-          UPDATE simulations
-          SET schema_version = ?, data = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(CURRENT_SCHEMA_VERSION, JSON.stringify(data), id);
-      })();
+      await withTransaction(async (conn) => {
+        await conn.execute(
+          `INSERT INTO simulation_backups (id, simulation_id, schema_version, data, reason)
+           VALUES (?, ?, ?, ?, ?)`,
+          [backupId, id, row.schema_version, row.data, 'AUTO_MIGRATION_ON_READ']
+        );
+        await conn.execute(
+          `UPDATE simulations
+           SET schema_version = ?, data = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [CURRENT_SCHEMA_VERSION, JSON.stringify(data), id]
+        );
+      });
     }
 
     return res.json({ simulation: data });
@@ -174,15 +173,16 @@ export function getSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function updateSimulation(req: AuthenticatedRequest, res: Response) {
+export async function updateSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
     const { data, name, description, tags, thumbnail } = req.body;
 
-    const existing: any = db.prepare(`
-      SELECT * FROM simulations WHERE id = ? AND user_id = ?
-    `).get(id, userId);
+    const existing = await queryOne<any>(
+      'SELECT * FROM simulations WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Simulation not found or access denied.' });
@@ -200,15 +200,13 @@ export function updateSimulation(req: AuthenticatedRequest, res: Response) {
     const stepCount = migratedData.steps ? migratedData.steps.length : existing.step_count;
     const dataJson = JSON.stringify(migratedData);
 
-    db.transaction(() => {
-      // Optional periodic snapshot in backups table for safety
-      db.prepare(`
-        UPDATE simulations
-        SET name = ?, description = ?, tags = COALESCE(?, tags),
-            data = ?, step_count = ?, thumbnail = COALESCE(?, thumbnail),
-            schema_version = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND user_id = ?
-      `).run(
+    await execute(
+      `UPDATE simulations
+       SET name = ?, description = ?, tags = COALESCE(?, tags),
+           data = ?, step_count = ?, thumbnail = COALESCE(?, thumbnail),
+           schema_version = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND user_id = ?`,
+      [
         simName,
         simDesc,
         tags || null,
@@ -217,9 +215,9 @@ export function updateSimulation(req: AuthenticatedRequest, res: Response) {
         thumbnail || null,
         CURRENT_SCHEMA_VERSION,
         id,
-        userId
-      );
-    })();
+        userId,
+      ]
+    );
 
     return res.json({
       message: 'Simulation updated successfully.',
@@ -231,16 +229,17 @@ export function updateSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function deleteSimulation(req: AuthenticatedRequest, res: Response) {
+export async function deleteSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
 
-    const result = db.prepare(`
-      DELETE FROM simulations WHERE id = ? AND user_id = ?
-    `).run(id, userId);
+    const result = await execute(
+      'DELETE FROM simulations WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
 
-    if (result.changes === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Simulation not found or access denied.' });
     }
 
@@ -251,14 +250,15 @@ export function deleteSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function duplicateSimulation(req: AuthenticatedRequest, res: Response) {
+export async function duplicateSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
 
-    const existing: any = db.prepare(`
-      SELECT * FROM simulations WHERE id = ? AND user_id = ?
-    `).get(id, userId);
+    const existing = await queryOne<any>(
+      'SELECT * FROM simulations WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Simulation not found.' });
@@ -277,19 +277,20 @@ export function duplicateSimulation(req: AuthenticatedRequest, res: Response) {
 
     const dataJson = JSON.stringify(newSimData);
 
-    db.prepare(`
-      INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count, thumbnail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      newSimId,
-      userId,
-      newSimData.name,
-      existing.description,
-      CURRENT_SCHEMA_VERSION,
-      existing.tags,
-      dataJson,
-      newSimData.steps.length,
-      existing.thumbnail
+    await execute(
+      `INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count, thumbnail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newSimId,
+        userId,
+        newSimData.name,
+        existing.description,
+        CURRENT_SCHEMA_VERSION,
+        existing.tags,
+        dataJson,
+        newSimData.steps.length,
+        existing.thumbnail,
+      ]
     );
 
     return res.status(201).json({
@@ -302,14 +303,15 @@ export function duplicateSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function exportSimulation(req: AuthenticatedRequest, res: Response) {
+export async function exportSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
 
-    const existing: any = db.prepare(`
-      SELECT * FROM simulations WHERE id = ? AND (user_id = ? OR is_public = 1)
-    `).get(id, userId);
+    const existing = await queryOne<any>(
+      'SELECT * FROM simulations WHERE id = ? AND (user_id = ? OR is_public = 1)',
+      [id, userId]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Simulation not found.' });
@@ -326,7 +328,7 @@ export function exportSimulation(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export function importSimulation(req: AuthenticatedRequest, res: Response) {
+export async function importSimulation(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const rawData = req.body;
@@ -345,18 +347,19 @@ export function importSimulation(req: AuthenticatedRequest, res: Response) {
 
     const dataJson = JSON.stringify(migratedData);
 
-    db.prepare(`
-      INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      newSimId,
-      userId,
-      migratedData.name,
-      migratedData.description || 'Imported simulation',
-      CURRENT_SCHEMA_VERSION,
-      'Imported',
-      dataJson,
-      migratedData.steps.length
+    await execute(
+      `INSERT INTO simulations (id, user_id, name, description, schema_version, tags, data, step_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newSimId,
+        userId,
+        migratedData.name,
+        migratedData.description || 'Imported simulation',
+        CURRENT_SCHEMA_VERSION,
+        'Imported',
+        dataJson,
+        migratedData.steps.length,
+      ]
     );
 
     return res.status(201).json({

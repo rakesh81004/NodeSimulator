@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import { db } from '../db/database';
+import { execute, queryOne } from '../db/database';
 import { hashPassword, verifyPassword } from '../auth/passwordUtils';
 import { generateToken } from '../auth/jwtUtils';
 import { AuthenticatedRequest } from '../auth/authMiddleware';
@@ -17,8 +17,10 @@ export async function register(req: Request, res: Response) {
       return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
     }
 
-    // Check if user already exists
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase().trim());
+    const existingUser = await queryOne(
+      'SELECT id FROM users WHERE email = ?',
+      [email.toLowerCase().trim()]
+    );
     if (existingUser) {
       return res.status(400).json({ error: 'An account with this email already exists.' });
     }
@@ -26,10 +28,10 @@ export async function register(req: Request, res: Response) {
     const userId = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
 
-    db.prepare(`
-      INSERT INTO users (id, email, name, password_hash)
-      VALUES (?, ?, ?, ?)
-    `).run(userId, email.toLowerCase().trim(), name.trim(), passwordHash);
+    await execute(
+      'INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)',
+      [userId, email.toLowerCase().trim(), name.trim(), passwordHash]
+    );
 
     const token = generateToken({ userId, email: email.toLowerCase().trim(), name: name.trim() });
 
@@ -56,7 +58,10 @@ export async function login(req: Request, res: Response) {
       return res.status(400).json({ error: 'Please provide email and password.' });
     }
 
-    const user: any = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
+    const user = await queryOne<any>(
+      'SELECT * FROM users WHERE email = ?',
+      [email.toLowerCase().trim()]
+    );
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
@@ -83,13 +88,16 @@ export async function login(req: Request, res: Response) {
   }
 }
 
-export function getMe(req: AuthenticatedRequest, res: Response) {
+export async function getMe(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated.' });
     }
 
-    const user: any = db.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?').get(req.user.userId);
+    const user = await queryOne(
+      'SELECT id, email, name, created_at FROM users WHERE id = ?',
+      [req.user.userId]
+    );
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }

@@ -15,23 +15,90 @@ A powerful visualization tool for Data Structures and Algorithms (DSA) simulatio
 
 - **UI**: React, TypeScript, Vite, Tailwind CSS, Zustand
 - **Backend**: Node.js (Express) — API + production static UI
-- **Database**: SQLite file (`data/simulator.db`)
+- **Database**: MySQL on your PC (`node_simulator`)
 - **Auth**: bcrypt passwords + HMAC session tokens (Node `crypto`)
+
+## MySQL on your PC (do this first)
+
+Data lives in MySQL, not in the app folder. Redeploying or updating the Node app does **not** erase simulations, as long as MySQL keeps running on this machine.
+
+### 1. Install and start MySQL (macOS)
+
+```bash
+brew install mysql
+brew services start mysql
+```
+
+If `brew` is missing: https://brew.sh
+
+Confirm it is running:
+
+```bash
+mysql --version
+brew services list
+```
+
+### 2. Set a root password (if you do not have one yet)
+
+```bash
+mysql -u root
+```
+
+In the MySQL prompt:
+
+```sql
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'pick_a_strong_password';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+(If that login fails, try `mysql -u root -p` and use the password you already set.)
+
+The app will create the `node_simulator` database and tables on first start. You do not need to run `schema.sql` unless you want to create tables by hand (MySQL Workbench is fine).
+
+### 3. Point the app at MySQL
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set **your** password:
+
+```
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=pick_a_strong_password
+MYSQL_DATABASE=node_simulator
+```
+
+### 4. Start the app
+
+```bash
+npm install
+npm run dev
+```
+
+You should see: `MySQL: 127.0.0.1/node_simulator`
+
+### Deploy vs data
+
+- **App updates** (git pull, rebuild, restart Node) → MySQL data stays.
+- **MySQL on this PC** + **website hosted somewhere else** → that host cannot see `127.0.0.1` on your laptop unless you expose MySQL to the internet (do not). Keep Node and MySQL on the **same machine**, or use a hosted MySQL and put that host in `.env`.
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+
+- MySQL running locally
 - npm or yarn
 
 ### Installation
 
 ```bash
-# Install dependencies
+cp .env.example .env   # then edit MYSQL_PASSWORD
 npm install
-
-# Start development server
 npm run dev
 ```
 
@@ -75,8 +142,9 @@ Then open http://localhost:3001 (Node serves the UI and the API).
 
 ```
 src/                    # React UI (canvas, dashboard, playback)
-server/                 # Node.js backend (Express API + SQLite)
-data/simulator.db       # Saved users and simulations (created at runtime)
+server/                 # Node.js backend (Express API)
+server/db/              # MySQL connection + schema
+.env                    # MySQL host/user/password (not committed)
 ```
 
 ## Development
