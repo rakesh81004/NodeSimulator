@@ -13,11 +13,10 @@ A powerful visualization tool for Data Structures and Algorithms (DSA) simulatio
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite
-- **Backend**: Express.js, SQLite (better-sqlite3)
-- **State Management**: Zustand
-- **Styling**: Tailwind CSS
-- **Authentication**: JWT with bcrypt
+- **UI**: React, TypeScript, Vite, Tailwind CSS, Zustand
+- **Backend**: Node.js (Express) — API + production static UI
+- **Database**: SQLite file (`data/simulator.db`)
+- **Auth**: bcrypt passwords + HMAC session tokens (Node `crypto`)
 
 ## Getting Started
 
@@ -36,15 +35,21 @@ npm install
 npm run dev
 ```
 
-The application will be available at:
-- Frontend: http://localhost:5173
-- Backend: http://localhost:3001
+Dev (Vite UI + Node API):
+- UI: http://localhost:5173
+- API: http://localhost:3001 (`/api` is proxied from Vite)
+
+Production (one Node process after `npm run build`):
+- http://localhost:3001
 
 ### Build for Production
 
 ```bash
 npm run build
+npm start
 ```
+
+Then open http://localhost:3001 (Node serves the UI and the API).
 
 ## Usage
 
@@ -69,17 +74,9 @@ npm run build
 ## Project Structure
 
 ```
-src/
-├── components/
-│   ├── dashboard/      # Dashboard and simulation management
-│   ├── editor/         # Main editor with canvas and tools
-│   ├── timeline/       # Step timeline and playback controls
-│   └── playback/       # Playback controls
-├── store/              # Zustand state management
-├── types/              # TypeScript type definitions
-├── utils/              # Utility functions
-└── animation/          # Animation and diff engine
-server/                 # Express.js backend
+src/                    # React UI (canvas, dashboard, playback)
+server/                 # Node.js backend (Express API + SQLite)
+data/simulator.db       # Saved users and simulations (created at runtime)
 ```
 
 ## Development
