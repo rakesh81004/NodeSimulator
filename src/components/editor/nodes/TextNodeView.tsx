@@ -63,7 +63,7 @@ export const TextNodeView: React.FC<Props> = ({ node, isSelected, isInteractive 
           className="cursor-pointer text-xs md:text-sm font-medium leading-relaxed italic text-slate-200"
           title="Double click to edit note"
         >
-          "{text || 'Click to add step explanation...'}"
+          {text || 'Click to add step explanation...'}
         </p>
       )}
     </div>

@@ -2,16 +2,18 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useSimulationStore } from '../../store/simulationStore';
 import { VisualNode, PointerVisualNode, StackVisualNode, ArrayVisualNode, StringVisualNode, RangeVisualNode } from '../../types/simulation';
 import { calculatePointerPosition, calculateRangePosition, getArrayCellCenter, snapToGrid } from '../../utils/canvasGeometry';
+import { lastCanvasMouse } from '../../utils/cursorTracker';
 import { ArrayNodeView } from './nodes/ArrayNodeView';
 import { StringNodeView } from './nodes/StringNodeView';
 import { VariableNodeView } from './nodes/VariableNodeView';
+import { ValueNodeView } from './nodes/ValueNodeView';
 import { PointerNodeView } from './nodes/PointerNodeView';
 import { TextNodeView } from './nodes/TextNodeView';
 import { ArrowNodeView } from './nodes/ArrowNodeView';
 import { HighlightNodeView } from './nodes/HighlightNodeView';
 import { StackNodeView } from './nodes/StackNodeView';
 import { RangeNodeView } from './nodes/RangeNodeView';
-import { Info, Sparkles } from 'lucide-react';
+import { Info, Sparkles, Lock } from 'lucide-react';
 
 export const Canvas: React.FC = () => {
   const {
@@ -19,7 +21,11 @@ export const Canvas: React.FC = () => {
     currentStepIndex,
     selectedObjectId,
     setSelectedObjectId,
+    selectedObjectIds,
+    setSelectedObjectIds,
+    toggleSelectedObjectId,
     updateObject,
+    updateSettings,
     zoom,
     pan,
     setPan,
@@ -30,23 +36,48 @@ export const Canvas: React.FC = () => {
     canUndo,
     historyIndex,
     _dragResetCounter,
+    activeTool,
+    setActiveTool,
+    addObject,
   } = useSimulationStore();
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [resizingNodeId, setResizingNodeId] = useState<string | null>(null);
+  const [resizeStart, setResizeStart] = useState({ mouseX: 0, mouseY: 0, width: 0, height: 0 });
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [showInfoHud, setShowInfoHud] = useState(true);
+  const [isEditingOverview, setIsEditingOverview] = useState(false);
+  const [overviewDraft, setOverviewDraft] = useState('');
   const [initialDragPosition, setInitialDragPosition] = useState<{ x: number; y: number } | null>(null);
   const [lastStepIndex, setLastStepIndex] = useState(currentStepIndex);
   const [lastSelectedId, setLastSelectedId] = useState(selectedObjectId);
+
+  // Figma-style shape drawing: while a drawable tool is armed (activeTool),
+  // click-drag on empty canvas draws the new shape at that geometry instead
+  // of marquee-selecting.
+  const [isDrawingShape, setIsDrawingShape] = useState(false);
+  const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
+  const [drawCurrent, setDrawCurrent] = useState({ x: 0, y: 0 });
+
+  // Marquee (drag-select) rectangle, in canvas-space (unscaled) units so it
+  // rides along with the world-space pan/zoom transform automatically.
+  const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false);
+  const [marqueeStart, setMarqueeStart] = useState({ x: 0, y: 0 });
+  const [marqueeEnd, setMarqueeEnd] = useState({ x: 0, y: 0 });
+
+  // When dragging a node that's part of a multi-selection, this captures
+  // every selected node's starting position so the whole group moves
+  // together by the same delta.
+  const [groupDragAnchors, setGroupDragAnchors] = useState<Record<string, { x: number; y: number }> | null>(null);
 
   const handleEndDrag = useCallback(() => {
     if (draggingNodeId && simulation && simulation.steps[currentStepIndex]) {
       const currentObjects = simulation.steps[currentStepIndex].objects;
       const draggedNode = currentObjects.find((o) => o.id === draggingNodeId);
-      
+
       // Check if position actually changed, then save to history
       if (draggedNode && initialDragPosition) {
         const positionChanged = draggedNode.x !== initialDragPosition.x || draggedNode.y !== initialDragPosition.y;
@@ -54,59 +85,61 @@ export const Canvas: React.FC = () => {
           saveToHistory();
         }
       }
-      
-      // Auto-snap pointer or range to closest Array / String cell
-      if (draggedNode && (draggedNode.type === 'pointer' || draggedNode.type === 'range')) {
-        const target = currentObjects.find((o) => o.type === 'array' || o.type === 'string') as ArrayVisualNode | StringVisualNode | undefined;
-        if (target) {
-          const isNearY = Math.abs(draggedNode.y - target.y) < 160;
-          const isNearX = draggedNode.x >= target.x - 60 && draggedNode.x <= target.x + target.width + 60;
-          if (isNearY && isNearX) {
-            const cellSize = target.data.cellSize || 56;
-            const totalCells = target.type === 'array' ? (target as any).data.elements?.length || 1 : (target as any).data.characters?.length || 1;
-            const rawIdx = Math.round((draggedNode.x - target.x) / cellSize);
-            const targetIdx = Math.max(0, Math.min(totalCells - 1, rawIdx));
+    }
 
-            if (draggedNode.type === 'pointer') {
-              updateObject(draggedNode.id, {
-                data: {
-                  ...(draggedNode as PointerVisualNode).data,
-                  targetNodeId: target.id,
-                  targetIndex: targetIdx,
-                },
-              } as any);
-            } else if (draggedNode.type === 'range') {
-              const currentSpan = Math.max(0, ((draggedNode as RangeVisualNode).data.endIndex ?? 2) - ((draggedNode as RangeVisualNode).data.startIndex ?? 0));
-              const newStart = targetIdx;
-              const newEnd = Math.min(totalCells - 1, newStart + currentSpan);
-              updateObject(draggedNode.id, {
-                data: {
-                  ...(draggedNode as RangeVisualNode).data,
-                  targetNodeId: target.id,
-                  startIndex: newStart,
-                  endIndex: newEnd,
-                },
-              } as any);
-            }
-          }
-        }
+    if (isDrawingShape && activeTool) {
+      const x0 = Math.min(drawStart.x, drawCurrent.x);
+      const y0 = Math.min(drawStart.y, drawCurrent.y);
+      const rawW = Math.abs(drawCurrent.x - drawStart.x);
+      const rawH = Math.abs(drawCurrent.y - drawStart.y);
+      const MIN_DRAG = 6; // below this, treat as a plain click -> default size
+
+      if (rawW < MIN_DRAG && rawH < MIN_DRAG) {
+        addObject(activeTool, { x: x0, y: y0 });
+      } else {
+        addObject(activeTool, { x: x0, y: y0 }, { width: rawW, height: rawH });
       }
+      setActiveTool(null);
     }
 
     setIsPanning(false);
     setDraggingNodeId(null);
     setInitialDragPosition(null);
-  }, [draggingNodeId, simulation, currentStepIndex, initialDragPosition, saveToHistory, updateObject]);
+    setGroupDragAnchors(null);
+    setIsMarqueeSelecting(false);
+    setIsDrawingShape(false);
+  }, [
+    draggingNodeId,
+    simulation,
+    currentStepIndex,
+    initialDragPosition,
+    saveToHistory,
+    updateObject,
+    isDrawingShape,
+    activeTool,
+    drawStart,
+    drawCurrent,
+    addObject,
+    setActiveTool,
+  ]);
 
   // Window-level safety listeners to eliminate phantom / sticky drag
   useEffect(() => {
     const handleGlobalMouseUp = () => {
-      if (draggingNodeId || isPanning) {
+      if (draggingNodeId || isPanning || isDrawingShape) {
         handleEndDrag();
       }
     };
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Escape while a shape tool is armed/drawing cancels it without
+      // placing anything, rather than finalizing a shape at whatever the
+      // cursor's last position was.
+      if (e.key === 'Escape' && (isDrawingShape || activeTool)) {
+        setIsDrawingShape(false);
+        setActiveTool(null);
+        return;
+      }
       // Clear drag on Escape or Undo/Redo key shortcuts
       if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')) {
         handleEndDrag();
@@ -124,7 +157,84 @@ export const Canvas: React.FC = () => {
       window.removeEventListener('blur', handleGlobalMouseUp);
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [draggingNodeId, isPanning, handleEndDrag]);
+  }, [draggingNodeId, isPanning, isDrawingShape, activeTool, handleEndDrag, setActiveTool]);
+
+  // Figma-style Space-to-pan: holding Space switches empty-canvas drag from
+  // marquee-select to panning, same as most design tools.
+  useEffect(() => {
+    const handleSpaceDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (e.code === 'Space') setIsSpacePressed(true);
+    };
+    const handleSpaceUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setIsSpacePressed(false);
+    };
+    window.addEventListener('keydown', handleSpaceDown);
+    window.addEventListener('keyup', handleSpaceUp);
+    return () => {
+      window.removeEventListener('keydown', handleSpaceDown);
+      window.removeEventListener('keyup', handleSpaceUp);
+    };
+  }, []);
+
+  // Figma-style wheel navigation: plain scroll pans the canvas, Ctrl/Cmd+scroll
+  // (or a trackpad pinch, which browsers report as a ctrlKey wheel event)
+  // zooms toward the cursor. Attached as a native listener so preventDefault
+  // reliably stops the page from scrolling -- React's onWheel is passive.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+
+    const handleWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const rect = el.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const cursorY = e.clientY - rect.top;
+        const store = useSimulationStore.getState();
+        const { zoom: curZoom, pan: curPan } = store;
+        const zoomFactor = Math.exp(-e.deltaY * 0.01);
+        const newZoom = Math.min(2.5, Math.max(0.3, curZoom * zoomFactor));
+        const worldX = (cursorX - curPan.x) / curZoom;
+        const worldY = (cursorY - curPan.y) / curZoom;
+        store.setZoom(newZoom);
+        store.setPan({ x: cursorX - worldX * newZoom, y: cursorY - worldY * newZoom });
+      } else {
+        const store = useSimulationStore.getState();
+        store.setPan({ x: store.pan.x - e.deltaX, y: store.pan.y - e.deltaY });
+      }
+    };
+
+    el.addEventListener('wheel', handleWheelNative, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheelNative);
+  }, []);
+
+  // Corner-handle resize drag for rectangle nodes.
+  useEffect(() => {
+    if (!resizingNodeId) return;
+
+    const handleResizeMove = (e: MouseEvent) => {
+      const dx = (e.clientX - resizeStart.mouseX) / zoom;
+      const dy = (e.clientY - resizeStart.mouseY) / zoom;
+      updateObject(
+        resizingNodeId,
+        { width: Math.max(40, Math.round(resizeStart.width + dx)), height: Math.max(30, Math.round(resizeStart.height + dy)) },
+        true
+      );
+    };
+    const handleResizeUp = () => {
+      setResizingNodeId(null);
+      saveToHistory();
+    };
+
+    window.addEventListener('mousemove', handleResizeMove);
+    window.addEventListener('mouseup', handleResizeUp);
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove);
+      window.removeEventListener('mouseup', handleResizeUp);
+    };
+  }, [resizingNodeId, resizeStart, zoom, updateObject, saveToHistory]);
 
   // Reset drag state when step changes, undo/redo happens, or counter increments
   useEffect(() => {
@@ -132,6 +242,9 @@ export const Canvas: React.FC = () => {
     setDragOffset({ x: 0, y: 0 });
     setInitialDragPosition(null);
     setIsPanning(false);
+    setGroupDragAnchors(null);
+    setIsMarqueeSelecting(false);
+    setIsDrawingShape(false);
   }, [historyIndex, _dragResetCounter]);
 
   // Reset drag state when step changes
@@ -141,19 +254,26 @@ export const Canvas: React.FC = () => {
       setDragOffset({ x: 0, y: 0 });
       setInitialDragPosition(null);
       setIsPanning(false);
+      setGroupDragAnchors(null);
+      setIsMarqueeSelecting(false);
       setLastStepIndex(currentStepIndex);
     }
   }, [currentStepIndex, lastStepIndex]);
 
-  // Reset drag state when selected object changes
+  // Reset drag state when selected object changes -- but not when the
+  // selection just changed *because* a drag started on that same node
+  // (mousedown selects and begins dragging in one go), or every fresh
+  // click-and-drag would be cancelled before the first mousemove landed.
   useEffect(() => {
     if (selectedObjectId !== lastSelectedId) {
-      setDraggingNodeId(null);
-      setDragOffset({ x: 0, y: 0 });
-      setInitialDragPosition(null);
+      if (draggingNodeId !== selectedObjectId) {
+        setDraggingNodeId(null);
+        setDragOffset({ x: 0, y: 0 });
+        setInitialDragPosition(null);
+      }
       setLastSelectedId(selectedObjectId);
     }
-  }, [selectedObjectId, lastSelectedId]);
+  }, [selectedObjectId, lastSelectedId, draggingNodeId]);
 
   if (!simulation || !simulation.steps[currentStepIndex]) {
     return (
@@ -168,32 +288,78 @@ export const Canvas: React.FC = () => {
   const snapEnabled = simulation.settings?.snapToGrid ?? true;
   const gridSize = simulation.settings?.gridSize ?? 20;
 
-  // Overview HUD entities
+  const isNodeSelected = (id: string) =>
+    selectedObjectId === id || selectedObjectIds.includes(id);
+  const isNodeBeingDragged = (id: string) =>
+    draggingNodeId === id || (groupDragAnchors ? id in groupDragAnchors : false);
+
+  // Used by the stack push/pop flying-particle trajectory below (unrelated
+  // to the Algorithm Overview HUD, which is now a manually-written note).
   const primaryArrayOrString = objects.find((o) => o.type === 'array' || o.type === 'string') as ArrayVisualNode | StringVisualNode | undefined;
   const primaryStack = objects.find((o) => o.type === 'stack') as StackVisualNode | undefined;
-  const variables = objects.filter((o) => o.type === 'variable');
+
+  const showOverview = simulation.settings?.showAlgorithmOverview ?? true;
+  const overviewText = simulation.settings?.algorithmOverviewText || '';
+
+  const startEditingOverview = () => {
+    setOverviewDraft(overviewText);
+    setIsEditingOverview(true);
+  };
+
+  const saveOverviewDraft = () => {
+    updateSettings({ algorithmOverviewText: overviewDraft });
+    setIsEditingOverview(false);
+  };
+
+  // Finds every node whose bounding box intersects the given canvas-space rect.
+  const getIdsInRect = (a: { x: number; y: number }, b: { x: number; y: number }): string[] => {
+    const minX = Math.min(a.x, b.x);
+    const maxX = Math.max(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxY = Math.max(a.y, b.y);
+    return objects
+      .filter((o) => !o.locked && o.x < maxX && o.x + o.width > minX && o.y < maxY && o.y + o.height > minY)
+      .map((o) => o.id);
+  };
 
   // Mouse & Touch Handlers
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    // Deselect when clicking on empty space or canvas background
-    if (e.button === 0 && (e.target as HTMLElement) === canvasRef.current) {
-      setSelectedObjectId(null);
-    }
-    
-    if (e.button === 1 || e.altKey || (e.target as HTMLElement) === canvasRef.current) {
+    // The world-space transform container sits on top of most of the visible
+    // canvas, so a strict `=== canvasRef.current` check only ever matched a
+    // sliver of dead space. Treat any click that didn't land on a node (or
+    // one of its interactive children) as "empty canvas" instead.
+    const isEmptyClick = !(e.target as HTMLElement).closest('[data-node-id]');
+    if (!isEmptyClick) return;
+
+    if (e.button === 1 || (e.button === 0 && e.altKey) || (e.button === 0 && isSpacePressed)) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      return;
     }
-  };
 
-  const handleCanvasClick = (e: React.MouseEvent) => {
-    // Deselect when clicking on empty space
-    // Check if the click target is not within a node
-    const target = e.target as HTMLElement;
-    const isNode = target.closest('[data-node-id]');
-    
-    if (!isNode) {
-      setSelectedObjectId(null);
+    if (e.button === 0 && activeTool) {
+      // A tool is armed (e.g. Rectangle) -- click-drag draws the shape here
+      // instead of marquee-selecting.
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return;
+      const startX = (e.clientX - canvasRect.left - pan.x) / zoom;
+      const startY = (e.clientY - canvasRect.top - pan.y) / zoom;
+      setDrawStart({ x: startX, y: startY });
+      setDrawCurrent({ x: startX, y: startY });
+      setIsDrawingShape(true);
+      return;
+    }
+
+    if (e.button === 0) {
+      // Plain click-drag on empty canvas starts a marquee drag-select.
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return;
+      const startX = (e.clientX - canvasRect.left - pan.x) / zoom;
+      const startY = (e.clientY - canvasRect.top - pan.y) / zoom;
+      setMarqueeStart({ x: startX, y: startY });
+      setMarqueeEnd({ x: startX, y: startY });
+      setIsMarqueeSelecting(true);
+      setSelectedObjectIds([]);
     }
   };
 
@@ -207,9 +373,18 @@ export const Canvas: React.FC = () => {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    // Safety check: If no mouse buttons are pressed, clear any drag/pan immediately
+    // Track cursor position in canvas (world-space) coordinates on every
+    // move, including plain hover with no button held, so a later Ctrl+V
+    // knows where "here" is.
+    const hoverRect = canvasRef.current?.getBoundingClientRect();
+    if (hoverRect) {
+      lastCanvasMouse.x = (e.clientX - hoverRect.left - pan.x) / zoom;
+      lastCanvasMouse.y = (e.clientY - hoverRect.top - pan.y) / zoom;
+    }
+
+    // Safety check: If no mouse buttons are pressed, clear any drag/pan/marquee immediately
     if (e.buttons === 0) {
-      if (draggingNodeId || isPanning) {
+      if (draggingNodeId || isPanning || isMarqueeSelecting) {
         handleEndDrag();
       }
       return;
@@ -223,6 +398,26 @@ export const Canvas: React.FC = () => {
       return;
     }
 
+    if (isDrawingShape) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return;
+      const curX = (e.clientX - canvasRect.left - pan.x) / zoom;
+      const curY = (e.clientY - canvasRect.top - pan.y) / zoom;
+      setDrawCurrent({ x: curX, y: curY });
+      return;
+    }
+
+    if (isMarqueeSelecting) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return;
+      const curX = (e.clientX - canvasRect.left - pan.x) / zoom;
+      const curY = (e.clientY - canvasRect.top - pan.y) / zoom;
+      const next = { x: curX, y: curY };
+      setMarqueeEnd(next);
+      setSelectedObjectIds(getIdsInRect(marqueeStart, next));
+      return;
+    }
+
     if (draggingNodeId && !isTransitioning) {
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       if (!canvasRect) return;
@@ -230,11 +425,22 @@ export const Canvas: React.FC = () => {
       const rawX = (e.clientX - canvasRect.left - pan.x) / zoom - dragOffset.x;
       const rawY = (e.clientY - canvasRect.top - pan.y) / zoom - dragOffset.y;
 
-      const nextX = snapEnabled ? snapToGrid(rawX, gridSize) : Math.round(rawX);
-      const nextY = snapEnabled ? snapToGrid(rawY, gridSize) : Math.round(rawY);
+      // No origin clamp: nodes can be placed freely in any direction, like a
+      // Figma canvas that isn't pinned to a top-left corner.
+      const clampedX = snapEnabled ? snapToGrid(rawX, gridSize) : Math.round(rawX);
+      const clampedY = snapEnabled ? snapToGrid(rawY, gridSize) : Math.round(rawY);
 
-      // Skip history during drag, save on drag end
-      updateObject(draggingNodeId, { x: Math.max(0, nextX), y: Math.max(0, nextY) }, true);
+      if (groupDragAnchors) {
+        const primaryAnchor = groupDragAnchors[draggingNodeId];
+        const dx = clampedX - primaryAnchor.x;
+        const dy = clampedY - primaryAnchor.y;
+        for (const [id, anchor] of Object.entries(groupDragAnchors)) {
+          updateObject(id, { x: anchor.x + dx, y: anchor.y + dy }, true);
+        }
+      } else {
+        // Skip history during drag, save on drag end
+        updateObject(draggingNodeId, { x: clampedX, y: clampedY }, true);
+      }
     }
   };
 
@@ -260,7 +466,7 @@ export const Canvas: React.FC = () => {
       const nextX = snapEnabled ? snapToGrid(rawX, gridSize) : Math.round(rawX);
       const nextY = snapEnabled ? snapToGrid(rawY, gridSize) : Math.round(rawY);
 
-      updateObject(draggingNodeId, { x: Math.max(0, nextX), y: Math.max(0, nextY) });
+      updateObject(draggingNodeId, { x: nextX, y: nextY });
     }
   };
 
@@ -268,9 +474,31 @@ export const Canvas: React.FC = () => {
     e.stopPropagation();
     if (isTransitioning) return;
 
-    setSelectedObjectId(node.id);
+    if (e.shiftKey) {
+      // Shift-click adds/removes this node from the multi-selection without
+      // starting a drag, so you can build up a group one click at a time.
+      toggleSelectedObjectId(node.id);
+      return;
+    }
+
+    const isPartOfGroup = selectedObjectIds.includes(node.id) && selectedObjectIds.length > 1;
+
+    if (isPartOfGroup) {
+      // Dragging any already-selected node in a multi-selection moves the
+      // whole group together; capture every member's starting position.
+      const anchors: Record<string, { x: number; y: number }> = {};
+      for (const id of selectedObjectIds) {
+        const obj = objects.find((o) => o.id === id);
+        if (obj) anchors[id] = { x: obj.x, y: obj.y };
+      }
+      setGroupDragAnchors(anchors);
+    } else {
+      setSelectedObjectId(node.id);
+      setGroupDragAnchors(null);
+    }
+
     setDraggingNodeId(node.id);
-    
+
     // Store initial position for comparison on drag end
     setInitialDragPosition({ x: node.x, y: node.y });
 
@@ -307,8 +535,10 @@ export const Canvas: React.FC = () => {
   };
 
   const getRenderedNodeState = (node: VisualNode) => {
-    // If the node is currently being actively dragged by the user, preserve live dragged coordinates
-    if (draggingNodeId === node.id) {
+    // If the node is currently being actively dragged (solo, or as part of a
+    // group drag), preserve its live dragged coordinates rather than letting
+    // pointer/range anchoring recalculate a stale position underneath it.
+    if (draggingNodeId === node.id || (groupDragAnchors && node.id in groupDragAnchors)) {
       return { ...node, opacity: 1 };
     }
 
@@ -408,7 +638,7 @@ export const Canvas: React.FC = () => {
   };
 
   const renderNodeComponent = (node: VisualNode, diffDetails?: any) => {
-    const isSelected = selectedObjectId === node.id && !isTransitioning;
+    const isSelected = isNodeSelected(node.id) && !isTransitioning;
 
     switch (node.type) {
       case 'array':
@@ -442,6 +672,8 @@ export const Canvas: React.FC = () => {
             transitionProgress={transitionProgress}
           />
         );
+      case 'value':
+        return <ValueNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
       case 'pointer':
         return <PointerNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
       case 'range':
@@ -536,65 +768,99 @@ export const Canvas: React.FC = () => {
       onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleEndDrag}
-      onClick={handleCanvasClick}
       onTouchStart={handleCanvasTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleEndDrag}
-      className="flex-1 relative overflow-hidden bg-[#070b14] cursor-crosshair select-none touch-none"
+      className={`flex-1 relative overflow-hidden bg-[#070b14] select-none touch-none ${
+        isPanning ? 'cursor-grabbing' : isSpacePressed ? 'cursor-grab' : 'cursor-crosshair'
+      }`}
       style={{
         backgroundImage: `radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)`,
         backgroundSize: `${gridSize * zoom}px ${gridSize * zoom}px`,
         backgroundPosition: `${pan.x}px ${pan.y}px`,
       }}
     >
-      {/* Top Left: Algorithm Overview HUD Card */}
-      {showInfoHud && (
+      {/* Top Left: Algorithm Overview HUD Card -- optional, manually-written note */}
+      {showOverview ? (
         <div className="absolute top-4 left-4 z-30 bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 shadow-xl text-xs max-w-xs transition-all pointer-events-auto select-none hidden sm:block">
           <div className="flex items-center justify-between gap-3 mb-2 pb-1.5 border-b border-slate-800/80">
             <div className="flex items-center gap-1.5 font-bold text-slate-200">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
               <span>Algorithm Overview</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowInfoHud(false)}
-              className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+            <div className="flex items-center gap-2">
+              {!isEditingOverview && (
+                <button
+                  type="button"
+                  onClick={startEditingOverview}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+                >
+                  edit
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => updateSettings({ showAlgorithmOverview: false })}
+                className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+              >
+                hide
+              </button>
+            </div>
+          </div>
+
+          {isEditingOverview ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                autoFocus
+                rows={5}
+                value={overviewDraft}
+                onChange={(e) => setOverviewDraft(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Write your own notes about this algorithm..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[11px] font-mono text-slate-200 outline-none focus:border-indigo-500 resize-none leading-relaxed"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingOverview(false)}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+                >
+                  cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveOverviewDraft}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono font-bold"
+                >
+                  save
+                </button>
+              </div>
+            </div>
+          ) : overviewText ? (
+            <p
+              onClick={startEditingOverview}
+              className="font-mono text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed cursor-text"
+              title="Click to edit"
             >
-              hide
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-1.5 font-mono text-[11px]">
-            {primaryArrayOrString && (
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-500">Input {primaryArrayOrString.type}:</span>
-                <span className="text-sky-400 font-bold truncate max-w-[140px]">
-                  {primaryArrayOrString.type === 'string'
-                    ? `"${(primaryArrayOrString as StringVisualNode).data.characters.map((c) => c.value).join('')}"`
-                    : `[${(primaryArrayOrString as ArrayVisualNode).data.elements.map((e) => e.value).join(', ')}]`}
-                </span>
-              </div>
-            )}
-
-            {variables.map((v) => (
-              <div key={v.id} className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-500">{(v as any).data.name}:</span>
-                <span className="text-emerald-400 font-bold truncate max-w-[120px]">
-                  {String((v as any).data.value)}
-                </span>
-              </div>
-            ))}
-
-            {primaryStack && (
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-500">Stack Size:</span>
-                <span className="text-purple-400 font-bold">
-                  {primaryStack.data.elements.length} items
-                </span>
-              </div>
-            )}
-          </div>
+              {overviewText}
+            </p>
+          ) : (
+            <p
+              onClick={startEditingOverview}
+              className="font-mono text-[11px] text-slate-500 italic cursor-text"
+            >
+              Click "edit" to write your own notes here.
+            </p>
+          )}
         </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => updateSettings({ showAlgorithmOverview: true })}
+          className="absolute top-4 left-4 z-30 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors hidden sm:block"
+        >
+          + Overview
+        </button>
       )}
 
       {/* Zoom / Pan World Space Container */}
@@ -602,32 +868,99 @@ export const Canvas: React.FC = () => {
         className="absolute top-0 left-0 origin-top-left transition-transform duration-75"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-          width: `${simulation.settings?.canvasWidth || 1200}px`,
-          height: `${simulation.settings?.canvasHeight || 700}px`,
+          width: `${simulation.settings?.canvasWidth || 6000}px`,
+          height: `${simulation.settings?.canvasHeight || 4000}px`,
         }}
       >
+        {/* Live preview while drawing a new shape with an armed tool */}
+        {isDrawingShape && (
+          <div
+            className="absolute border-2 border-dashed border-indigo-400 bg-indigo-500/10 pointer-events-none z-40 rounded-sm"
+            style={{
+              left: `${Math.min(drawStart.x, drawCurrent.x)}px`,
+              top: `${Math.min(drawStart.y, drawCurrent.y)}px`,
+              width: `${Math.abs(drawCurrent.x - drawStart.x)}px`,
+              height: `${Math.abs(drawCurrent.y - drawStart.y)}px`,
+            }}
+          />
+        )}
+
+        {/* Marquee Drag-Select Rectangle */}
+        {isMarqueeSelecting && (
+          <div
+            className="absolute border-2 border-indigo-400 bg-indigo-500/10 pointer-events-none z-40"
+            style={{
+              left: `${Math.min(marqueeStart.x, marqueeEnd.x)}px`,
+              top: `${Math.min(marqueeStart.y, marqueeEnd.y)}px`,
+              width: `${Math.abs(marqueeEnd.x - marqueeStart.x)}px`,
+              height: `${Math.abs(marqueeEnd.y - marqueeStart.y)}px`,
+            }}
+          />
+        )}
+
         {/* Render Canvas Visual Nodes */}
         {objects.map((node) => {
           const rendered = getRenderedNodeState(node);
-          const isSelected = selectedObjectId === node.id && !isTransitioning;
+          const isSelected = isNodeSelected(node.id) && !isTransitioning;
 
           return (
             <div
               key={node.id}
               data-node-id={node.id}
-              onMouseDown={(e) => handleNodeMouseDown(e, node)}
-              onTouchStart={(e) => handleNodeTouchStart(e, node)}
+              onMouseDown={node.locked ? undefined : (e) => handleNodeMouseDown(e, node)}
+              onTouchStart={node.locked ? undefined : (e) => handleNodeTouchStart(e, node)}
               className={`absolute transition-shadow duration-100 ${
-                draggingNodeId === node.id ? 'cursor-grabbing z-50' : 'cursor-grab'
-              }`}
+                node.locked ? 'cursor-default' : isNodeBeingDragged(node.id) ? 'cursor-grabbing z-50' : 'cursor-grab'
+              } ${isSelected && selectedObjectIds.length > 1 ? 'ring-2 ring-indigo-400/80 rounded-md' : ''}`}
               style={{
                 left: `${rendered.x}px`,
                 top: `${rendered.y}px`,
                 zIndex: node.zIndex || 1,
                 opacity: rendered.opacity ?? 1,
+                // Locked nodes let clicks/drags fall through to whatever is
+                // underneath instead of intercepting them -- unlock via the
+                // small badge below, which stays interactive on its own.
+                pointerEvents: node.locked ? 'none' : 'auto',
               }}
             >
               {renderNodeComponent(rendered as VisualNode, (rendered as any).diffDetails)}
+
+              {/* Figma-style corner resize handle -- rectangles are the one
+                  node type with no fixed content shape, so free resizing
+                  actually makes sense for them. */}
+              {node.type === 'highlight' && isSelected && !isTransitioning && !node.locked && (
+                <div
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setResizingNodeId(node.id);
+                    setResizeStart({
+                      mouseX: e.clientX,
+                      mouseY: e.clientY,
+                      width: node.width,
+                      height: node.height,
+                    });
+                  }}
+                  className="absolute -right-1.5 -bottom-1.5 w-3.5 h-3.5 rounded-sm bg-indigo-400 border border-white/80 cursor-nwse-resize z-10"
+                  title="Drag to resize"
+                />
+              )}
+
+              {node.locked && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    updateObject(node.id, { locked: false } as any);
+                    setSelectedObjectId(node.id);
+                  }}
+                  className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-slate-400 flex items-center justify-center shadow-lg"
+                  style={{ pointerEvents: 'auto' }}
+                  title="Locked -- click to unlock"
+                >
+                  <Lock className="w-2.5 h-2.5" />
+                </button>
+              )}
             </div>
           );
         })}

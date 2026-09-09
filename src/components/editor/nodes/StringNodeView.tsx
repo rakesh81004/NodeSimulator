@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StringVisualNode, ArrayElement } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
-import { Plus, Trash2, Palette, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Palette, GripVertical, X } from 'lucide-react';
 
 interface Props {
   node: StringVisualNode;
@@ -56,6 +56,17 @@ export const StringNodeView: React.FC<Props> = ({
       data: { ...node.data, characters: nextChars },
     } as any);
     setPaletteCharId(null);
+  };
+
+  const handleToggleStrikethrough = (e: React.MouseEvent, charId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const nextChars = characters.map((ch) =>
+      ch.id === charId ? { ...ch, strikethrough: !ch.strikethrough } : ch
+    );
+    updateObject(node.id, {
+      data: { ...node.data, characters: nextChars },
+    } as any);
   };
 
   const handleAddChar = (e: React.MouseEvent) => {
@@ -309,11 +320,39 @@ export const StringNodeView: React.FC<Props> = ({
                   <span>{formatDisplayValue(ch.value)}</span>
                 )}
 
+                {/* Red Diagonal Strikethrough Overlay */}
+                {ch.strikethrough && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 overflow-hidden">
+                    <div
+                      style={{
+                        width: '140%',
+                        height: '2px',
+                        backgroundColor: '#ff3b30',
+                        transform: 'rotate(-45deg)',
+                      }}
+                    />
+                  </div>
+                )}
+
                 {/* Drag handle indicator */}
                 {isInteractive && isSelected && (
                   <div className="absolute top-1 left-1 opacity-30 hover:opacity-100 transition-opacity">
                     <GripVertical className="w-3 h-3 text-white" />
                   </div>
+                )}
+
+                {/* Quick Cross Mark Toggle on Hover */}
+                {isSelected && isInteractive && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleStrikethrough(e, ch.id)}
+                    className={`absolute -bottom-2 left-0 p-0.5 rounded text-white opacity-0 group-hover:opacity-100 hover:scale-110 transition-all border z-20 ${
+                      ch.strikethrough ? 'bg-rose-600 border-rose-400' : 'bg-black border-slate-700'
+                    }`}
+                    title={ch.strikethrough ? 'Remove cross mark' : 'Add cross mark'}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
                 )}
 
                 {/* Quick Color Palette Hover Trigger */}

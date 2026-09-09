@@ -5,10 +5,12 @@ import {
   ArrayVisualNode,
   StringVisualNode,
   VariableVisualNode,
+  ValueVisualNode,
   PointerVisualNode,
   TextVisualNode,
   StackVisualNode,
   RangeVisualNode,
+  HighlightVisualNode,
   ArrayElement,
 } from '../../types/simulation';
 import {
@@ -21,7 +23,15 @@ import {
   Palette,
   Plus,
   LogOut,
+  RefreshCw,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Lock,
+  Unlock,
 } from 'lucide-react';
+import { generateSimulationFromCode } from '../../parser/dsaCodeSimulator';
 
 interface Props {
   onCloseMobile?: () => void;
@@ -32,14 +42,61 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     simulation,
     currentStepIndex,
     selectedObjectId,
+    selectedObjectIds,
     setSelectedObjectId,
     updateObject,
     deleteObject,
+    deleteSelectedObjects,
     duplicateObject,
+    duplicateSelectedObjects,
+    copySelectedObjects,
     bringToFront,
     sendToBack,
+    regenerateSteps,
   } = useSimulationStore();
   const { themeColor } = useTheme();
+
+  if (simulation && selectedObjectIds.length > 1) {
+    return (
+      <aside className="hidden lg:flex w-72 bg-surface-900 border-l border-slate-800 p-5 flex-col items-center justify-center text-center select-none gap-4">
+        <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+          <Layers className="w-6 h-6" />
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-slate-200 mb-1">{selectedObjectIds.length} objects selected</h4>
+          <p className="text-xs text-slate-500 max-w-[220px]">
+            Drag any of them to move the whole group. Copy, duplicate, and delete apply to all of them together.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => copySelectedObjects()}
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            title="Copy group (Ctrl/Cmd+C)"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => duplicateSelectedObjects()}
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            title="Duplicate group (Ctrl/Cmd+D)"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => deleteSelectedObjects()}
+            className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+            title="Delete group (Delete)"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </aside>
+    );
+  }
 
   if (!simulation || !selectedObjectId) {
     return (
@@ -49,7 +106,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
         </div>
         <h4 className="text-sm font-semibold text-slate-300 mb-1">Properties Inspector</h4>
         <p className="text-xs text-slate-500 max-w-[200px]">
-          Click any element on canvas to edit arrays, variables, pointers, and colors.
+          Click any element on canvas to edit arrays, variables, pointers, and colors. Drag on empty canvas to select multiple.
         </p>
       </aside>
     );
@@ -82,6 +139,55 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     { label: 'White', color: '#ffffff', highlight: 'none' },
   ];
 
+  // Simulations created via Import Code remember which algorithm/code generated them,
+  // so editing the input here can re-run that same logic instead of just editing text.
+  const canRerunDryRun = Boolean(simulation.sourceAlgorithmType);
+
+  const handleRerunDryRun = () => {
+    if (!simulation.sourceAlgorithmType) return;
+
+    let inputData: Record<string, any> = {};
+
+    if (selectedNode.type === 'array') {
+      const values = (selectedNode as ArrayVisualNode).data.elements.map((el) => el.value);
+      if (simulation.sourceAlgorithmType === 'two-sum') {
+        const targetVar = currentStep.objects.find(
+          (o) => o.type === 'variable' && (o as VariableVisualNode).data.name === 'target'
+        ) as VariableVisualNode | undefined;
+        inputData = {
+          nums: values.map((v) => Number(v)).filter((n) => !isNaN(n)),
+          target: targetVar ? Number(targetVar.data.value) : 9,
+        };
+      } else {
+        inputData = { s: values.join(', ') };
+      }
+    } else if (selectedNode.type === 'string') {
+      const s = (selectedNode as StringVisualNode).data.characters.map((c) => c.value).join('');
+      inputData = { s };
+    }
+
+    const generated = generateSimulationFromCode({
+      algorithmType: simulation.sourceAlgorithmType as any,
+      code: simulation.sourceCode || '',
+      language: (simulation.sourceLanguage as any) || 'java',
+      inputData,
+    });
+
+    regenerateSteps(generated.steps);
+    setSelectedObjectId(null);
+  };
+
+  const rerunButton = canRerunDryRun ? (
+    <button
+      type="button"
+      onClick={handleRerunDryRun}
+      className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+    >
+      <RefreshCw className="w-3.5 h-3.5" />
+      Re-run Dry Run with This Input
+    </button>
+  ) : null;
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -109,6 +215,16 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
             </h3>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => updateObject(selectedNode.id, { locked: !selectedNode.locked } as any)}
+              className={`p-1.5 rounded-lg hover:bg-slate-800 ${
+                selectedNode.locked ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-white'
+              }`}
+              title={selectedNode.locked ? 'Unlock -- allow selecting on canvas again' : 'Lock -- clicks on canvas will pass through to whatever is underneath'}
+            >
+              {selectedNode.locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+            </button>
             <button
               type="button"
               onClick={() => duplicateObject(selectedNode.id)}
@@ -220,6 +336,92 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
             </div>
           )}
 
+          {/* Value Box Configuration */}
+          {selectedNode.type === 'value' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-rose-400">Value Box Configuration</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Value Type</label>
+                <select
+                  value={(selectedNode as ValueVisualNode).data.dataType || 'number'}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as ValueVisualNode).data, dataType: e.target.value as any },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-rose-400 outline-none font-mono"
+                >
+                  <option value="number">Number (e.g. 15, -4)</option>
+                  <option value="string">String / Character (e.g. a, val)</option>
+                  <option value="boolean">Boolean (true / false)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Value</label>
+                <input
+                  type="text"
+                  value={String((selectedNode as ValueVisualNode).data.value).replace(/^['"]|['"]$/g, '')}
+                  onChange={(e) => {
+                    const cleanVal = e.target.value.replace(/^['"]|['"]$/g, '');
+                    const num = Number(cleanVal);
+                    const finalVal = !isNaN(num) && cleanVal.trim() !== '' ? num : cleanVal;
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as ValueVisualNode).data, value: finalVal },
+                    } as any);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-rose-400 outline-none font-mono font-bold"
+                />
+              </div>
+
+              {/* Red Cross Mark Toggle */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Cross Mark</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateObject(selectedNode.id, {
+                      data: {
+                        ...(selectedNode as ValueVisualNode).data,
+                        strikethrough: !(selectedNode as ValueVisualNode).data.strikethrough,
+                      },
+                    } as any)
+                  }
+                  className={`w-full py-1.5 px-2 rounded text-xs flex items-center justify-center gap-1.5 font-semibold transition-colors ${
+                    (selectedNode as ValueVisualNode).data.strikethrough
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                  {(selectedNode as ValueVisualNode).data.strikethrough ? 'Cross Mark On' : 'Cross Mark Off'}
+                </button>
+              </div>
+
+              {/* Color Preset Palette */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Color Theme</label>
+                <div className="flex items-center gap-2">
+                  {colorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, backgroundColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Array Node Configuration */}
           {selectedNode.type === 'array' && (
             <div className="flex flex-col gap-3">
@@ -301,6 +503,8 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   ))}
                 </div>
               </div>
+
+              {rerunButton}
             </div>
           )}
 
@@ -372,6 +576,8 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   ))}
                 </div>
               </div>
+
+              {rerunButton}
             </div>
           )}
 
@@ -552,6 +758,42 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   }
                   className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-amber-400 outline-none font-mono font-bold"
                 />
+              </div>
+
+              {/* Arrow Direction */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Arrow Direction</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(
+                    [
+                      { dir: 'up', icon: ArrowUp, title: 'Points up (pointer sits below the array)' },
+                      { dir: 'down', icon: ArrowDown, title: 'Points down (pointer sits above the array)' },
+                      { dir: 'left', icon: ArrowLeft, title: 'Points left (pointer sits to the right of the array)' },
+                      { dir: 'right', icon: ArrowRight, title: 'Points right (pointer sits to the left of the array)' },
+                    ] as const
+                  ).map(({ dir, icon: DirIcon, title }) => {
+                    const isActive = ((selectedNode as PointerVisualNode).data.direction || 'up') === dir;
+                    return (
+                      <button
+                        key={dir}
+                        type="button"
+                        onClick={() =>
+                          updateObject(selectedNode.id, {
+                            data: { ...(selectedNode as PointerVisualNode).data, direction: dir },
+                          } as any)
+                        }
+                        className={`py-1.5 rounded flex items-center justify-center transition-colors ${
+                          isActive
+                            ? 'bg-amber-500 text-black'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                        }`}
+                        title={title}
+                      >
+                        <DirIcon className="w-3.5 h-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Pointer Color */}
@@ -822,6 +1064,153 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.type === 'highlight' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-slate-300">Rectangle</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Label (optional)</label>
+                <input
+                  type="text"
+                  value={(selectedNode as HighlightVisualNode).data.label || ''}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as HighlightVisualNode).data, label: e.target.value },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-slate-400 outline-none font-mono"
+                  placeholder="No label"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Width</label>
+                  <input
+                    type="number"
+                    min={40}
+                    value={selectedNode.width}
+                    onChange={(e) => updateObject(selectedNode.id, { width: Math.max(40, Number(e.target.value)) } as any)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white text-center focus:border-slate-400 outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Height</label>
+                  <input
+                    type="number"
+                    min={30}
+                    value={selectedNode.height}
+                    onChange={(e) => updateObject(selectedNode.id, { height: Math.max(30, Number(e.target.value)) } as any)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white text-center focus:border-slate-400 outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Style</label>
+                <select
+                  value={(selectedNode as HighlightVisualNode).data.variant || 'filled'}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as HighlightVisualNode).data, variant: e.target.value as any },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-slate-400 outline-none font-mono"
+                >
+                  <option value="filled">Solid Fill</option>
+                  <option value="dashed">Dashed Outline</option>
+                  <option value="glow">Glow Outline</option>
+                  <option value="window">Highlight Window</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Fill Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          data: { ...(selectedNode as HighlightVisualNode).data, fillColor: p.color },
+                          style: { ...selectedNode.style, backgroundColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={(selectedNode as HighlightVisualNode).data.fillColor || '#64748b'}
+                    onChange={(e) =>
+                      updateObject(selectedNode.id, {
+                        data: { ...(selectedNode as HighlightVisualNode).data, fillColor: e.target.value },
+                        style: { ...selectedNode.style, backgroundColor: e.target.value },
+                      } as any)
+                    }
+                    className="w-6 h-6 rounded-full border-2 border-white/60 cursor-pointer bg-transparent"
+                    title="Custom fill color"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  Opacity ({Math.round((selectedNode.style.opacity ?? 1) * 100)}%)
+                </label>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  step={5}
+                  value={Math.round((selectedNode.style.opacity ?? 1) * 100)}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, opacity: Number(e.target.value) / 100 },
+                    } as any)
+                  }
+                  className="w-full accent-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          data: { ...(selectedNode as HighlightVisualNode).data, color: p.color },
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={(selectedNode as HighlightVisualNode).data.color || '#94a3b8'}
+                    onChange={(e) =>
+                      updateObject(selectedNode.id, {
+                        data: { ...(selectedNode as HighlightVisualNode).data, color: e.target.value },
+                        style: { ...selectedNode.style, borderColor: e.target.value },
+                      } as any)
+                    }
+                    className="w-6 h-6 rounded-full border-2 border-white/60 cursor-pointer bg-transparent"
+                    title="Custom border color"
+                  />
                 </div>
               </div>
             </div>

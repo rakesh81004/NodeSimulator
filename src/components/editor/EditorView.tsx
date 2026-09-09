@@ -19,11 +19,12 @@ export const EditorView: React.FC<Props> = ({ onBackToDashboard }) => {
   const {
     simulation,
     selectedObjectId,
-    deleteObject,
-    duplicateObject,
-    copyObject,
+    selectedObjectIds,
+    deleteSelectedObjects,
+    duplicateSelectedObjects,
+    copySelectedObjects,
     pasteObject,
-    moveObjectBy,
+    moveSelectedObjectsBy,
     isPlaying,
     runFullSimulation,
     stopPlayback,
@@ -57,21 +58,23 @@ export const EditorView: React.FC<Props> = ({ onBackToDashboard }) => {
         return;
       }
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
+      const hasSelection = Boolean(selectedObjectId) || selectedObjectIds.length > 0;
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && hasSelection) {
         e.preventDefault();
-        deleteObject(selectedObjectId);
+        deleteSelectedObjects();
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedObjectId) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && hasSelection) {
         e.preventDefault();
-        duplicateObject(selectedObjectId);
+        duplicateSelectedObjects();
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedObjectId) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && hasSelection) {
         e.preventDefault();
-        copyObject(selectedObjectId);
+        copySelectedObjects();
         return;
       }
 
@@ -92,7 +95,7 @@ export const EditorView: React.FC<Props> = ({ onBackToDashboard }) => {
         return;
       }
 
-      if (selectedObjectId && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (hasSelection && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 2;
         let dx = 0;
@@ -101,7 +104,7 @@ export const EditorView: React.FC<Props> = ({ onBackToDashboard }) => {
         if (e.key === 'ArrowDown') dy = step;
         if (e.key === 'ArrowLeft') dx = -step;
         if (e.key === 'ArrowRight') dx = step;
-        moveObjectBy(selectedObjectId, dx, dy);
+        moveSelectedObjectsBy(dx, dy);
         // Position changes should also save to history
         return;
       }
@@ -111,12 +114,13 @@ export const EditorView: React.FC<Props> = ({ onBackToDashboard }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     selectedObjectId,
+    selectedObjectIds,
     isPlaying,
-    deleteObject,
-    duplicateObject,
-    copyObject,
+    deleteSelectedObjects,
+    duplicateSelectedObjects,
+    copySelectedObjects,
     pasteObject,
-    moveObjectBy,
+    moveSelectedObjectsBy,
     runFullSimulation,
     stopPlayback,
     undo,

@@ -16,7 +16,7 @@ export const ThemePicker: React.FC<Props> = ({ position = 'bottom' }) => {
       case 'top':
         return 'bottom-full mb-2';
       case 'bottom':
-        return 'top-full mt-2';
+        return 'top-full mt-2 right-0';
       case 'left':
         return 'right-full mr-2';
       case 'right':

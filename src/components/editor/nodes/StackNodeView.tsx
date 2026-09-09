@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StackVisualNode, ArrayElement } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
-import { Plus, LogOut, Palette } from 'lucide-react';
+import { Plus, LogOut, Palette, X } from 'lucide-react';
 
 interface Props {
   node: StackVisualNode;
@@ -58,6 +58,17 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
         lastAction: 'pop',
         lastPoppedValue: popped.value,
       },
+    } as any);
+  };
+
+  const handleToggleStrikethrough = (e: React.MouseEvent, elId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const nextElements = elements.map((el) =>
+      el.id === elId ? { ...el, strikethrough: !el.strikethrough } : el
+    );
+    updateObject(node.id, {
+      data: { ...node.data, elements: nextElements },
     } as any);
   };
 
@@ -202,7 +213,7 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
               <div
                 key={el.id}
                 onDoubleClick={() => isInteractive && setEditingElId(el.id)}
-                className="w-full py-2.5 font-sans font-bold text-lg text-center text-white flex items-center justify-center rounded-xl shadow-md"
+                className="relative group w-full py-2.5 font-sans font-bold text-lg text-center text-white flex items-center justify-center rounded-xl shadow-md"
                 style={{
                   backgroundColor: bgColor,
                 }}
@@ -222,6 +233,34 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                   />
                 ) : (
                   <span>{formatDisplayValue(el.value)}</span>
+                )}
+
+                {/* Red Diagonal Strikethrough Overlay */}
+                {el.strikethrough && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 overflow-hidden">
+                    <div
+                      style={{
+                        width: '140%',
+                        height: '2px',
+                        backgroundColor: '#ff3b30',
+                        transform: 'rotate(-45deg)',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Quick Cross Mark Toggle on Hover */}
+                {isSelected && isInteractive && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleStrikethrough(e, el.id)}
+                    className={`absolute -bottom-2 left-0 p-0.5 rounded text-white opacity-0 group-hover:opacity-100 hover:scale-110 transition-all border z-20 ${
+                      el.strikethrough ? 'bg-rose-600 border-rose-400' : 'bg-black border-slate-700'
+                    }`}
+                    title={el.strikethrough ? 'Remove cross mark' : 'Add cross mark'}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
                 )}
               </div>
             );

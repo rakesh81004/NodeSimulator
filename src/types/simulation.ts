@@ -2,6 +2,7 @@ export type VisualNodeType =
   | 'array'
   | 'string'
   | 'variable'
+  | 'value'
   | 'pointer'
   | 'text'
   | 'arrow'
@@ -31,6 +32,10 @@ export interface BaseVisualNode {
   height: number;
   zIndex: number;
   style: BaseNodeStyle;
+  // Locked nodes ignore clicks/drags on canvas (so an overlapping background
+  // shape can't steal selection from whatever sits "inside" it) -- unlock
+  // via the small lock badge that appears on top of a locked node instead.
+  locked?: boolean;
 }
 
 export interface ArrayElement {
@@ -38,6 +43,7 @@ export interface ArrayElement {
   value: string | number;
   highlight?: 'none' | 'active' | 'found' | 'swapping' | 'visited' | 'dimmed' | 'pushing' | 'popping' | 'window';
   customColor?: string;
+  strikethrough?: boolean;
 }
 
 export interface ArrayVisualNode extends BaseVisualNode {
@@ -68,6 +74,15 @@ export interface VariableVisualNode extends BaseVisualNode {
     value: string | number | boolean;
     dataType?: 'number' | 'string' | 'boolean' | 'pointer';
     animationStyle?: 'strikethrough' | 'crossfade' | 'slide';
+  };
+}
+
+export interface ValueVisualNode extends BaseVisualNode {
+  type: 'value';
+  data: {
+    value: string | number | boolean;
+    dataType?: 'number' | 'string' | 'boolean';
+    strikethrough?: boolean;
   };
 }
 
@@ -131,6 +146,9 @@ export interface HighlightVisualNode extends BaseVisualNode {
     label?: string;
     variant: 'window' | 'glow' | 'dashed' | 'filled';
     color: string;
+    // Independent fill color -- `color` above doubles as the border/label
+    // accent, so a plain rectangle needs its own fill to let the two differ.
+    fillColor?: string;
   };
 }
 
@@ -150,6 +168,7 @@ export type VisualNode =
   | ArrayVisualNode
   | StringVisualNode
   | VariableVisualNode
+  | ValueVisualNode
   | PointerVisualNode
   | TextVisualNode
   | ArrowVisualNode
@@ -172,6 +191,10 @@ export interface SimulationSettings {
   snapToGrid: boolean;
   theme: 'dark' | 'light';
   defaultPlaybackSpeed: number;
+  // The "Algorithm Overview" HUD card: optional, and its content is written
+  // by hand rather than derived from whatever nodes happen to be on canvas.
+  showAlgorithmOverview?: boolean;
+  algorithmOverviewText?: string;
 }
 
 export interface SimulationData {
@@ -184,6 +207,11 @@ export interface SimulationData {
   tags?: string;
   settings: SimulationSettings;
   steps: StepModel[];
+  // Present only for simulations generated from the Code Import flow, so the
+  // dry run can be regenerated from scratch after the input is edited.
+  sourceAlgorithmType?: string;
+  sourceCode?: string;
+  sourceLanguage?: string;
 }
 
 export interface SimulationSummary {

@@ -12,7 +12,7 @@ export const HighlightNodeView: React.FC<Props> = ({ node, isSelected, isInterac
   const { updateObject } = useSimulationStore();
   const [editingLabel, setEditingLabel] = useState(false);
 
-  const { label = '', color = '#38bdf8', variant = 'window' } = node.data;
+  const { label = '', color = '#38bdf8', variant = 'window', fillColor } = node.data;
 
   const handleLabelChange = (newLabel: string) => {
     updateObject(node.id, {
@@ -30,7 +30,7 @@ export const HighlightNodeView: React.FC<Props> = ({ node, isSelected, isInterac
       style={{
         width: `${node.width || 200}px`,
         height: `${node.height || 100}px`,
-        backgroundColor: node.style.backgroundColor || `${color}15`,
+        backgroundColor: node.style.backgroundColor || fillColor || color,
         borderColor: node.style.borderColor || color,
         borderWidth: node.style.borderWidth || 2,
         borderStyle: isDashed ? 'dashed' : 'solid',

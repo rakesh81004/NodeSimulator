@@ -6,8 +6,8 @@ export const TEMPLATES: Record<string, Partial<SimulationPayload>> = {
     description: 'Dry run finding two numbers in [2, 7, 11, 15] that add up to target = 9.',
     schemaVersion: CURRENT_SCHEMA_VERSION,
     settings: {
-      canvasWidth: 1200,
-      canvasHeight: 700,
+      canvasWidth: 6000,
+      canvasHeight: 4000,
       gridSize: 20,
       snapToGrid: true,
       theme: 'dark',
@@ -444,8 +444,8 @@ export const TEMPLATES: Record<string, Partial<SimulationPayload>> = {
     description: 'Step-by-step interval halving with low, mid, and high pointers.',
     schemaVersion: CURRENT_SCHEMA_VERSION,
     settings: {
-      canvasWidth: 1200,
-      canvasHeight: 700,
+      canvasWidth: 6000,
+      canvasHeight: 4000,
       gridSize: 20,
       snapToGrid: true,
       theme: 'dark',

@@ -79,8 +79,8 @@ export async function createSimulation(req: AuthenticatedRequest, res: Response)
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         settings: tpl.settings || {
-          canvasWidth: 1200,
-          canvasHeight: 700,
+          canvasWidth: 6000,
+          canvasHeight: 4000,
           gridSize: 20,
           snapToGrid: true,
           theme: 'dark',
@@ -100,8 +100,8 @@ export async function createSimulation(req: AuthenticatedRequest, res: Response)
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         settings: {
-          canvasWidth: 1200,
-          canvasHeight: 700,
+          canvasWidth: 6000,
+          canvasHeight: 4000,
           gridSize: 20,
           snapToGrid: true,
           theme: 'dark',

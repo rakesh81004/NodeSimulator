@@ -25,8 +25,6 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
     endIndex = 2,
     variant = 'bracket',
     color = '#8b5cf6',
-    showIndices = true,
-    showLength = true,
     targetNodeId,
   } = node.data;
 
@@ -41,8 +39,6 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
       ? targetNode.data.elements?.length || 1
       : targetNode.data.characters?.length || 1
     : undefined;
-
-  const windowLen = Math.max(1, Math.abs(endIndex - startIndex) + 1);
 
   const handleLabelChange = (newVal: string) => {
     updateObject(node.id, {
@@ -132,12 +128,6 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
               {label || 'Window'}
             </span>
           )}
-
-          {showLength && (
-            <span className="text-[10px] opacity-80 border-l border-slate-700 pl-1">
-              len: {windowLen}
-            </span>
-          )}
         </div>
       </div>
     );
@@ -179,7 +169,7 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                 e.stopPropagation();
                 if (isInteractive) setEditingStartLabel(true);
               }}
-              className="px-1.5 py-0.5 rounded font-mono font-black text-xs md:text-sm tracking-tight cursor-pointer transition-transform hover:scale-110 shadow-sm"
+              className="w-4 h-4 flex items-center justify-center rounded font-mono font-black text-[9px] leading-none tracking-tight cursor-pointer transition-transform hover:scale-110 shadow-sm"
               style={{
                 backgroundColor: `${rangeColor}25`,
                 color: rangeColor,
@@ -217,55 +207,6 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                 ›
               </button>
             </div>
-          )}
-        </div>
-
-        {/* Center Badge: Window Title & Length */}
-        <div
-          className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-mono font-bold text-[11px] shadow-lg border backdrop-blur-md"
-          style={{
-            backgroundColor: '#070b14ee',
-            borderColor: `${rangeColor}90`,
-            color: rangeColor,
-            boxShadow: `0 0 12px ${rangeColor}40`,
-          }}
-        >
-          {editingLabel && isInteractive ? (
-            <input
-              type="text"
-              autoFocus
-              className="bg-transparent outline-none w-20 text-center text-[11px] font-mono text-white"
-              value={label}
-              onChange={(e) => handleLabelChange(e.target.value)}
-              onBlur={() => setEditingLabel(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Escape') setEditingLabel(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isInteractive) setEditingLabel(true);
-              }}
-              className="cursor-pointer hover:underline"
-              title="Click to edit window name"
-            >
-              {label || 'Window'}
-            </span>
-          )}
-
-          {showIndices && (
-            <span className="text-[10px] text-slate-300 font-normal">
-              [{startIndex}..{endIndex}]
-            </span>
-          )}
-
-          {showLength && (
-            <span className="text-[10px] font-black px-1 rounded bg-white/10 text-white">
-              k={windowLen}
-            </span>
           )}
         </div>
 
@@ -319,7 +260,7 @@ export const RangeNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                 e.stopPropagation();
                 if (isInteractive) setEditingEndLabel(true);
               }}
-              className="px-1.5 py-0.5 rounded font-mono font-black text-xs md:text-sm tracking-tight cursor-pointer transition-transform hover:scale-110 shadow-sm"
+              className="w-4 h-4 flex items-center justify-center rounded font-mono font-black text-[9px] leading-none tracking-tight cursor-pointer transition-transform hover:scale-110 shadow-sm"
               style={{
                 backgroundColor: `${rangeColor}25`,
                 color: rangeColor,

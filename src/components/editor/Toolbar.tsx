@@ -16,15 +16,23 @@ import {
   Plus,
   X,
   ScanLine,
+  RectangleHorizontal,
 } from 'lucide-react';
 import { VisualNodeType } from '../../types/simulation';
 
 export const Toolbar: React.FC = () => {
-  const { addObject, zoom, setZoom, resetView, simulation, updateSettings } = useSimulationStore();
+  const { addObject, zoom, setZoom, resetView, simulation, updateSettings, activeTool, setActiveTool } = useSimulationStore();
   const { themeColor } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const handleAdd = (type: VisualNodeType) => {
+  const handleAdd = (type: VisualNodeType, drawable?: boolean) => {
+    if (drawable) {
+      // Arm the tool instead of placing immediately -- the next click-drag
+      // on the canvas draws the shape at that position/size, Figma-style.
+      setActiveTool(activeTool === type ? null : type);
+      setMobileMenuOpen(false);
+      return;
+    }
     addObject(type);
     setMobileMenuOpen(false);
   };
@@ -39,33 +47,36 @@ export const Toolbar: React.FC = () => {
     { type: 'stack' as VisualNodeType, label: 'Stack', icon: Layers, color: 'text-purple-400 hover:bg-purple-500/10' },
     { type: 'string' as VisualNodeType, label: 'String', icon: Type, color: 'text-cyan-400 hover:bg-cyan-500/10' },
     { type: 'variable' as VisualNodeType, label: 'Variable', icon: Variable, color: 'text-emerald-400 hover:bg-emerald-500/10' },
+    { type: 'value' as VisualNodeType, label: 'Value Box', icon: Square, color: 'text-rose-400 hover:bg-rose-500/10' },
     { type: 'pointer' as VisualNodeType, label: 'Pointer', icon: Navigation, color: 'text-amber-400 hover:bg-amber-500/10' },
     { type: 'range' as VisualNodeType, label: 'Window Range', icon: ScanLine, color: 'text-violet-400 hover:bg-violet-500/10' },
+    { type: 'box' as VisualNodeType, label: 'Rectangle', icon: RectangleHorizontal, color: 'text-slate-300 hover:bg-slate-500/10', drawable: true },
     { type: 'text' as VisualNodeType, label: 'Quote Note', icon: FileText, color: 'text-indigo-400 hover:bg-indigo-500/10' },
   ];
 
   return (
     <>
       {/* Desktop Toolbar (Left Sidebar) */}
-      <aside className="hidden md:flex w-14 md:w-16 bg-surface-900 border-r border-slate-800 flex-col items-center py-3 md:py-4 justify-between z-20 select-none overflow-y-auto">
-        <div className="flex flex-col items-center gap-1.5 md:gap-2">
+      <aside className="hidden md:flex w-20 bg-surface-900 border-r border-slate-800 flex-col items-center py-3 md:py-4 justify-between z-20 select-none overflow-y-auto">
+        <div className="flex flex-col items-center gap-1.5 md:gap-2 w-full px-1.5">
           <span className="text-[9px] md:text-[10px] font-mono uppercase text-slate-500 font-bold mb-0.5 tracking-wider">
             Nodes
           </span>
           {toolItems.map((tool) => {
             const Icon = tool.icon;
+            const isArmed = tool.drawable && activeTool === tool.type;
             return (
               <button
                 key={tool.type}
                 type="button"
-                onClick={() => handleAdd(tool.type)}
-                className={`w-10 h-10 md:w-11 md:h-11 rounded-xl flex flex-col items-center justify-center transition-all ${tool.color} group relative border border-transparent hover:border-slate-700/80 active:scale-95`}
-                title={`Add ${tool.label}`}
+                onClick={() => handleAdd(tool.type, tool.drawable)}
+                className={`w-full py-1.5 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all ${tool.color} border active:scale-95 ${
+                  isArmed ? 'border-indigo-400 bg-indigo-500/10' : 'border-transparent hover:border-slate-700/80'
+                }`}
+                title={tool.drawable ? `Draw ${tool.label} (click-drag on canvas)` : `Add ${tool.label}`}
               >
                 <Icon className="w-4 h-4 md:w-5 md:h-5" />
-                <div className="absolute left-14 px-2 py-1 bg-surface-950 border border-slate-700 rounded-md text-xs font-mono text-slate-200 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-lg z-50">
-                  + Add {tool.label}
-                </div>
+                <span className="text-[9px] font-mono leading-tight text-center">{tool.label}</span>
               </button>
             );
           })}
@@ -121,6 +132,8 @@ export const Toolbar: React.FC = () => {
                   <button
                     key={tool.type}
                     type="button"
+                    // Touch has no click-drag draw gesture wired up yet, so
+                    // mobile always places the shape at a default size/position.
                     onClick={() => handleAdd(tool.type)}
                     className={`p-2 rounded-xl flex flex-col items-center gap-1 bg-slate-950 border border-slate-800 ${tool.color}`}
                   >

@@ -7,6 +7,7 @@ import {
   ArrayVisualNode,
   StringVisualNode,
   VariableVisualNode,
+  ValueVisualNode,
   PointerVisualNode,
   TextVisualNode,
   ArrowVisualNode,
@@ -16,6 +17,7 @@ import {
 } from '../types/simulation';
 import { deepClone } from '../utils/deepClone';
 import { generateId } from '../utils/idGenerator';
+import { lastCanvasMouse } from '../utils/cursorTracker';
 import { api } from '../persistence/api';
 import { localRecovery } from '../persistence/localRecovery';
 import { computeStepDiff } from '../animation/diffEngine';
@@ -27,7 +29,15 @@ interface SimulationState {
   simulation: SimulationData | null;
   currentStepIndex: number;
   selectedObjectId: string | null;
-  copiedObject: VisualNode | null;
+  // Multi-selection group (e.g. from a marquee drag-select). When non-empty,
+  // this is the authoritative "selected" set; selectedObjectId still tracks
+  // the primary/last-clicked node for the Properties panel and quick actions.
+  selectedObjectIds: string[];
+  // Figma-style armed tool: when set, the next canvas click-drag draws a new
+  // node of this type at that geometry instead of marquee-selecting. Cleared
+  // after one shape is placed (or Escape).
+  activeTool: VisualNodeType | null;
+  copiedObjects: VisualNode[] | null;
   
   // Canvas viewport
   zoom: number;
@@ -60,6 +70,7 @@ interface SimulationState {
   triggerAutosave: () => void;
   updateSettings: (settings: Partial<SimulationData['settings']>) => void;
   setSimulationTitle: (name: string, description?: string) => void;
+  regenerateSteps: (steps: StepModel[]) => void;
 
   // Actions: Step Management
   setCurrentStepIndex: (index: number) => void;
@@ -72,13 +83,20 @@ interface SimulationState {
 
   // Actions: Visual Node Manipulation
   setSelectedObjectId: (id: string | null) => void;
-  addObject: (type: VisualNodeType, customPos?: { x: number; y: number }) => VisualNode;
+  setSelectedObjectIds: (ids: string[]) => void;
+  toggleSelectedObjectId: (id: string) => void;
+  setActiveTool: (tool: VisualNodeType | null) => void;
+  addObject: (type: VisualNodeType, customPos?: { x: number; y: number }, customSize?: { width: number; height: number }) => VisualNode;
   updateObject: (id: string, updates: Partial<VisualNode> | { data: any; style?: any }, skipHistory?: boolean) => void;
   deleteObject: (id: string) => void;
+  deleteSelectedObjects: () => void;
   duplicateObject: (id: string) => void;
+  duplicateSelectedObjects: () => void;
   copyObject: (id: string) => void;
+  copySelectedObjects: () => void;
   pasteObject: () => void;
   moveObjectBy: (id: string, dx: number, dy: number) => void;
+  moveSelectedObjectsBy: (dx: number, dy: number) => void;
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
 
@@ -109,7 +127,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   simulation: null,
   currentStepIndex: 0,
   selectedObjectId: null,
-  copiedObject: null,
+  selectedObjectIds: [],
+  activeTool: null,
+  copiedObjects: null,
   zoom: 1.0,
   pan: { x: 0, y: 0 },
   isPlaying: false,
@@ -200,6 +220,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       simulation: deepClone(previousState),
       currentStepIndex: safeStepIdx,
       selectedObjectId: null,
+      selectedObjectIds: [],
       activeDiffPlan: null,
       isTransitioning: false,
       historyIndex: newIndex,
@@ -225,6 +246,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       simulation: deepClone(nextState),
       currentStepIndex: safeStepIdx,
       selectedObjectId: null,
+      selectedObjectIds: [],
       activeDiffPlan: null,
       isTransitioning: false,
       historyIndex: newIndex,
@@ -306,6 +328,26 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       description: description !== undefined ? description : simulation.description,
     };
     set({ simulation: next });
+    get().triggerAutosave();
+  },
+
+  regenerateSteps: (steps) => {
+    const { simulation } = get();
+    if (!simulation || steps.length === 0) return;
+    const next: SimulationData = { ...simulation, steps };
+    set({
+      simulation: next,
+      currentStepIndex: 0,
+      selectedObjectId: null,
+      activeDiffPlan: null,
+      isPlaying: false,
+      isTransitioning: false,
+      history: [deepClone(next)],
+      historyIndex: 0,
+      canUndo: false,
+      canRedo: false,
+    });
+    localRecovery.saveDraft(next);
     get().triggerAutosave();
   },
 
@@ -485,9 +527,21 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   // ==========================================
   // VISUAL OBJECTS MANIPULATION
   // ==========================================
-  setSelectedObjectId: (id) => set({ selectedObjectId: id }),
+  setSelectedObjectId: (id) => set({ selectedObjectId: id, selectedObjectIds: [] }),
 
-  addObject: (type, customPos) => {
+  setSelectedObjectIds: (ids) => set({ selectedObjectIds: ids, selectedObjectId: ids.length === 1 ? ids[0] : null }),
+
+  toggleSelectedObjectId: (id) => {
+    const { selectedObjectIds, selectedObjectId } = get();
+    // Seed the group from whatever was singly-selected before the first shift-click.
+    const base = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+    set({ selectedObjectIds: next, selectedObjectId: next.length === 1 ? next[0] : null });
+  },
+
+  setActiveTool: (tool) => set({ activeTool: tool }),
+
+  addObject: (type, customPos, customSize) => {
     const { simulation, currentStepIndex } = get();
     if (!simulation) throw new Error('No active simulation');
 
@@ -619,11 +673,36 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
         break;
       }
 
-      case 'pointer': {
-        // Find existing array on canvas to auto-anchor to if available
-        const currentStep = simulation.steps[currentStepIndex];
-        const existingArray = currentStep.objects.find((o) => o.type === 'array' || o.type === 'string');
+      case 'value': {
+        const valueNode: ValueVisualNode = {
+          id,
+          type: 'value',
+          x: posX,
+          y: posY,
+          width: 100,
+          height: 56,
+          zIndex: 10,
+          style: {
+            backgroundColor: '#007aff',
+            borderColor: '#000000',
+            borderWidth: 2,
+            borderRadius: 12,
+            color: '#ffffff',
+            fontSize: 16,
+          },
+          data: {
+            value: 0,
+            dataType: 'number',
+            strikethrough: false,
+          },
+        };
+        newNode = valueNode;
+        break;
+      }
 
+      case 'pointer': {
+        // Starts as a free, unattached node -- the user opts in to anchoring
+        // it to an array/string index via the Properties panel.
         const pointerNode: PointerVisualNode = {
           id,
           type: 'pointer',
@@ -639,8 +718,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
             label: 'i',
             direction: 'down',
             color: '#38bdf8',
-            targetNodeId: existingArray?.id,
-            targetIndex: existingArray ? 0 : undefined,
+            targetNodeId: undefined,
+            targetIndex: undefined,
           },
         };
         newNode = pointerNode;
@@ -707,19 +786,21 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           type: 'highlight',
           x: posX,
           y: posY,
-          width: 220,
-          height: 100,
+          width: 180,
+          height: 120,
           zIndex: 1,
           style: {
-            backgroundColor: 'rgba(56, 189, 248, 0.08)',
-            borderColor: '#38bdf8',
+            backgroundColor: '#64748b',
+            borderColor: '#94a3b8',
             borderWidth: 2,
-            borderRadius: 12,
+            borderRadius: 6,
+            opacity: 1,
           },
           data: {
-            label: 'Search Window',
-            variant: 'window',
-            color: '#38bdf8',
+            label: '',
+            variant: 'filled',
+            color: '#94a3b8',
+            fillColor: '#64748b',
           },
         };
         newNode = boxNode;
@@ -756,9 +837,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       }
 
       case 'range': {
-        const currentStep = simulation.steps[currentStepIndex];
-        const existingArray = currentStep.objects.find((o) => o.type === 'array' || o.type === 'string');
-
+        // Starts as a free, unattached node -- the user opts in to anchoring
+        // it to an array/string via the Properties panel's "Attach Target".
         const rangeNode: RangeVisualNode = {
           id,
           type: 'range',
@@ -774,11 +854,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
             label: 'Window',
             startLabel: 'L',
             endLabel: 'R',
-            targetNodeId: existingArray?.id,
-            startIndex: existingArray ? 0 : 0,
-            endIndex: existingArray
-              ? Math.min(2, ((existingArray as any).data.elements?.length || (existingArray as any).data.characters?.length || 1) - 1)
-              : 2,
+            targetNodeId: undefined,
+            startIndex: 0,
+            endIndex: 2,
             variant: 'bracket',
             color: '#8b5cf6',
             showIndices: true,
@@ -791,6 +869,13 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
 
       default:
         throw new Error(`Unsupported visual node type: ${type}`);
+    }
+
+    // A shape drawn by click-dragging the tool (rather than a plain toolbar
+    // click) carries its own geometry instead of the type's usual default.
+    if (customSize) {
+      newNode.width = Math.max(20, Math.round(customSize.width));
+      newNode.height = Math.max(20, Math.round(customSize.height));
     }
 
     // Carry the new object forward into every later step too, so it doesn't
@@ -851,7 +936,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   },
 
   deleteObject: (id) => {
-    const { simulation, currentStepIndex, selectedObjectId } = get();
+    const { simulation, currentStepIndex, selectedObjectId, selectedObjectIds } = get();
     if (!simulation) return;
 
     // Save to history before deleting object
@@ -869,6 +954,30 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     set({
       simulation: { ...simulation, steps: newSteps },
       selectedObjectId: selectedObjectId === id ? null : selectedObjectId,
+      selectedObjectIds: selectedObjectIds.filter((x) => x !== id),
+    });
+
+    get().triggerAutosave();
+  },
+
+  deleteSelectedObjects: () => {
+    const { simulation, currentStepIndex, selectedObjectIds, selectedObjectId } = get();
+    if (!simulation) return;
+    const ids = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    if (ids.length === 0) return;
+
+    get().saveToHistory();
+
+    const currentStep = simulation.steps[currentStepIndex];
+    const newObjects = currentStep.objects.filter((obj) => !ids.includes(obj.id));
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: newObjects };
+
+    set({
+      simulation: { ...simulation, steps: newSteps },
+      selectedObjectId: null,
+      selectedObjectIds: [],
     });
 
     get().triggerAutosave();
@@ -881,6 +990,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     const currentStep = simulation.steps[currentStepIndex];
     const target = currentStep.objects.find((obj) => obj.id === id);
     if (!target) return;
+
+    get().saveToHistory();
 
     const cloned = deepClone(target);
     cloned.id = generateId(target.type);
@@ -898,6 +1009,52 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     set({
       simulation: { ...simulation, steps: newSteps },
       selectedObjectId: cloned.id,
+      selectedObjectIds: [],
+    });
+
+    get().triggerAutosave();
+  },
+
+  duplicateSelectedObjects: () => {
+    const { simulation, currentStepIndex, selectedObjectIds, selectedObjectId } = get();
+    if (!simulation) return;
+    const ids = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    if (ids.length === 0) return;
+
+    const currentStep = simulation.steps[currentStepIndex];
+    const targets = currentStep.objects.filter((o) => ids.includes(o.id));
+    if (targets.length === 0) return;
+
+    get().saveToHistory();
+
+    // Remap any pointer/range references that pointed at another node in
+    // the SAME selected group, so the duplicated group stays linked to
+    // itself rather than back to the originals.
+    const idMap: Record<string, string> = {};
+    const cloned = targets.map((orig) => {
+      const clone = deepClone(orig);
+      const newId = generateId(orig.type);
+      idMap[orig.id] = newId;
+      clone.id = newId;
+      clone.x += 30;
+      clone.y += 30;
+      return clone;
+    });
+    cloned.forEach((node) => {
+      const data = (node as any).data;
+      if (data?.targetNodeId && idMap[data.targetNodeId]) {
+        data.targetNodeId = idMap[data.targetNodeId];
+      }
+    });
+
+    const updatedStep = { ...currentStep, objects: [...currentStep.objects, ...cloned] };
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = updatedStep;
+
+    set({
+      simulation: { ...simulation, steps: newSteps },
+      selectedObjectId: cloned.length === 1 ? cloned[0].id : null,
+      selectedObjectIds: cloned.map((n) => n.id),
     });
 
     get().triggerAutosave();
@@ -908,25 +1065,72 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     if (!simulation) return;
     const target = simulation.steps[currentStepIndex].objects.find((o) => o.id === id);
     if (target) {
-      set({ copiedObject: deepClone(target) });
+      set({ copiedObjects: [deepClone(target)] });
+    }
+  },
+
+  copySelectedObjects: () => {
+    const { simulation, currentStepIndex, selectedObjectIds, selectedObjectId } = get();
+    if (!simulation) return;
+    const ids = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    if (ids.length === 0) return;
+
+    const currentStep = simulation.steps[currentStepIndex];
+    const targets = currentStep.objects.filter((o) => ids.includes(o.id));
+    if (targets.length > 0) {
+      set({ copiedObjects: deepClone(targets) });
     }
   },
 
   pasteObject: () => {
-    const { copiedObject } = get();
-    if (!copiedObject) return;
-    const { simulation, currentStepIndex } = get();
-    if (!simulation) return;
+    const { copiedObjects, simulation, currentStepIndex } = get();
+    if (!copiedObjects || copiedObjects.length === 0 || !simulation) return;
+
+    // Paste is a mutation like any other -- without this, Ctrl+Z had nothing
+    // to revert to and silently no-op'd right after a paste.
+    get().saveToHistory();
 
     const currentStep = simulation.steps[currentStepIndex];
-    const pasted = deepClone(copiedObject);
-    pasted.id = generateId(pasted.type);
-    pasted.x += 20;
-    pasted.y += 20;
+
+    // Re-anchor the copied group's bounding-box center under the current
+    // mouse position (tracked passively by Canvas as it moves over the
+    // canvas), preserving each node's position relative to the others.
+    // Falls back to the old fixed offset if the cursor was never over the
+    // canvas yet (e.g. paste fired before any mousemove).
+    const minX = Math.min(...copiedObjects.map((o) => o.x));
+    const minY = Math.min(...copiedObjects.map((o) => o.y));
+    const maxX = Math.max(...copiedObjects.map((o) => o.x + o.width));
+    const maxY = Math.max(...copiedObjects.map((o) => o.y + o.height));
+    const groupCenterX = (minX + maxX) / 2;
+    const groupCenterY = (minY + maxY) / 2;
+
+    const hasCursor = lastCanvasMouse.x !== null && lastCanvasMouse.y !== null;
+    const offsetX = hasCursor ? (lastCanvasMouse.x as number) - groupCenterX : 24;
+    const offsetY = hasCursor ? (lastCanvasMouse.y as number) - groupCenterY : 24;
+
+    // Remap internal cross-references (pointer/range targetNodeId) to the
+    // NEW ids when the referenced node was part of the SAME copied group,
+    // so a copied pointer+array pair stays linked to each other post-paste.
+    const idMap: Record<string, string> = {};
+    const pasted = copiedObjects.map((orig) => {
+      const clone = deepClone(orig);
+      const newId = generateId(orig.type);
+      idMap[orig.id] = newId;
+      clone.id = newId;
+      clone.x += offsetX;
+      clone.y += offsetY;
+      return clone;
+    });
+    pasted.forEach((node) => {
+      const data = (node as any).data;
+      if (data?.targetNodeId && idMap[data.targetNodeId]) {
+        data.targetNodeId = idMap[data.targetNodeId];
+      }
+    });
 
     const updatedStep = {
       ...currentStep,
-      objects: [...currentStep.objects, pasted],
+      objects: [...currentStep.objects, ...pasted],
     };
 
     const newSteps = [...simulation.steps];
@@ -934,7 +1138,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
 
     set({
       simulation: { ...simulation, steps: newSteps },
-      selectedObjectId: pasted.id,
+      selectedObjectId: pasted.length === 1 ? pasted[0].id : null,
+      selectedObjectIds: pasted.map((n) => n.id),
     });
 
     get().triggerAutosave();
@@ -952,6 +1157,26 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       if (obj.id !== id) return obj;
       return { ...obj, x: obj.x + dx, y: obj.y + dy };
     });
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: newObjects };
+
+    set({ simulation: { ...simulation, steps: newSteps } });
+    get().triggerAutosave();
+  },
+
+  moveSelectedObjectsBy: (dx, dy) => {
+    const { simulation, currentStepIndex, selectedObjectIds, selectedObjectId } = get();
+    if (!simulation) return;
+    const ids = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    if (ids.length === 0) return;
+
+    get().saveToHistory();
+
+    const currentStep = simulation.steps[currentStepIndex];
+    const newObjects = currentStep.objects.map((obj) =>
+      ids.includes(obj.id) ? { ...obj, x: obj.x + dx, y: obj.y + dy } : obj
+    );
 
     const newSteps = [...simulation.steps];
     newSteps[currentStepIndex] = { ...currentStep, objects: newObjects };

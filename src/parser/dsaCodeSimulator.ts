@@ -7,6 +7,7 @@ import {
   PointerVisualNode,
   VariableVisualNode,
   TextVisualNode,
+  VisualNode,
 } from '../types/simulation';
 import { deepClone } from '../utils/deepClone';
 
@@ -15,6 +16,7 @@ export interface CodeSimulationRequest {
     | 'valid-parentheses'
     | 'two-pointers-palindrome'
     | 'two-sum'
+    | 'remove-outer-parentheses'
     | 'rpn-stack'
     | 'container-water'
     | 'binary-search'
@@ -28,6 +30,165 @@ export interface GeneratedSimulationResult {
   title: string;
   description: string;
   steps: StepModel[];
+}
+
+/**
+ * Builds the visual node(s) for one named, typed input value: a nested/2D
+ * array becomes one array node per row (stacked vertically and labeled), a
+ * flat array becomes a single array node, and any scalar (number/string/
+ * boolean) becomes a variable node. Used both by the generic fallback setup
+ * and to render "extra" inputs alongside a recognized algorithm's own steps.
+ */
+function buildInputNodes(
+  name: string,
+  value: any,
+  x: number,
+  y: number
+): { nodes: VisualNode[]; nextY: number } {
+  const cellSize = 56;
+
+  if (Array.isArray(value) && Array.isArray(value[0])) {
+    const nodes: VisualNode[] = value.map((row: any[], rowIdx: number) => {
+      const elements: ArrayElement[] = row.map((v, i) => ({
+        id: `${name}_${rowIdx}_${i}`,
+        value: v,
+        highlight: 'none',
+      }));
+      return {
+        id: `arr_${name}_${rowIdx}`,
+        type: 'array',
+        x,
+        y: y + rowIdx * (cellSize + 12),
+        width: Math.max(cellSize, elements.length * cellSize),
+        height: cellSize,
+        zIndex: 5,
+        style: { backgroundColor: '#007aff', borderColor: 'transparent', borderWidth: 0, borderRadius: 4, color: '#ffffff', fontSize: 20 },
+        data: { name: `${name}[${rowIdx}]`, showIndexes: false, orientation: 'horizontal', cellSize, elements },
+      } as ArrayVisualNode;
+    });
+    return { nodes, nextY: y + value.length * (cellSize + 12) + 16 };
+  }
+
+  if (Array.isArray(value)) {
+    const elements: ArrayElement[] = value.map((v, i) => ({ id: `${name}_${i}`, value: v, highlight: 'none' }));
+    const node: ArrayVisualNode = {
+      id: `arr_${name}`,
+      type: 'array',
+      x,
+      y,
+      width: Math.max(cellSize, elements.length * cellSize),
+      height: cellSize,
+      zIndex: 5,
+      style: { backgroundColor: '#007aff', borderColor: 'transparent', borderWidth: 0, borderRadius: 4, color: '#ffffff', fontSize: 20 },
+      data: { name, showIndexes: true, orientation: 'horizontal', cellSize, elements },
+    };
+    return { nodes: [node], nextY: y + cellSize + 40 };
+  }
+
+  const dataType = typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'string';
+  const node: VariableVisualNode = {
+    id: `var_${name}`,
+    type: 'variable',
+    x,
+    y,
+    width: 150,
+    height: 48,
+    zIndex: 8,
+    style: { backgroundColor: '#8b5cf6', borderColor: '#000000', borderWidth: 2, borderRadius: 12, color: '#ffffff', fontSize: 15 },
+    data: { name, value, dataType, animationStyle: 'strikethrough' },
+  };
+  return { nodes: [node], nextY: y + 64 };
+}
+
+/**
+ * Appends any inputData entries a recognized algorithm's generator doesn't
+ * itself consume (e.g. an extra array or variable alongside "nums"/"target")
+ * onto every step it produced, so nothing declared in the Import modal gets
+ * silently dropped just because the pattern-specific generator ignores it.
+ */
+function injectExtraInputs(
+  steps: StepModel[],
+  inputData: Record<string, any> | undefined,
+  consumedKeys: string[]
+): StepModel[] {
+  if (!inputData) return steps;
+  const extraKeys = Object.keys(inputData).filter((k) => !consumedKeys.includes(k));
+  if (extraKeys.length === 0) return steps;
+
+  const extraNodes: VisualNode[] = [];
+  let x = 620;
+  let y = 130;
+  for (const key of extraKeys) {
+    const { nodes, nextY } = buildInputNodes(key, inputData[key], x, y);
+    extraNodes.push(...nodes);
+    y = nextY;
+  }
+
+  return steps.map((step) => ({
+    ...step,
+    objects: [...step.objects, ...extraNodes.map((n) => deepClone(n))],
+  }));
+}
+
+/**
+ * Generic fallback: builds a single "initial setup" step directly from
+ * whatever inputs were declared in the Import modal -- any mix of arrays,
+ * nested/2D arrays, and plain variables -- for code that doesn't match one
+ * of the specific recognized patterns. The user continues building the
+ * dry run manually from here with the canvas's own step tools.
+ */
+export function simulateGenericSetup(inputData: Record<string, any> = {}): GeneratedSimulationResult {
+  const entries = Object.entries(inputData);
+  const objects: VisualNode[] = [];
+
+  let x = 100;
+  let y = 130;
+  let col = 0;
+  const colWidth = 280;
+
+  for (const [name, value] of entries) {
+    const { nodes, nextY } = buildInputNodes(name, value, x, y);
+    objects.push(...nodes);
+    y = nextY;
+    if (y > 480) {
+      col++;
+      x = 100 + col * colWidth;
+      y = 130;
+    }
+  }
+
+  const note: TextVisualNode = {
+    id: 'text_setup_note',
+    type: 'text',
+    x: 100,
+    y: 560,
+    width: 500,
+    height: 48,
+    zIndex: 4,
+    style: { backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: '#6366f1', borderWidth: 1, borderRadius: 12, color: '#e2e8f0', fontSize: 14 },
+    data: {
+      text: 'Initial setup built from your declared inputs. Use "+ Next Step" to build out the dry run manually from here.',
+      fontSize: 14,
+      fontWeight: 'normal',
+      isCallout: true,
+      badgeText: 'SETUP',
+    },
+  };
+  objects.push(note);
+
+  return {
+    title: 'Custom Input Setup',
+    description: 'Initial state built from your declared inputs. Continue building steps manually from here.',
+    steps: [
+      {
+        id: 'step_1',
+        name: 'Step 1: Initial Setup',
+        description: 'Starting state from your declared inputs.',
+        durationMs: 800,
+        objects,
+      },
+    ],
+  };
 }
 
 /**
@@ -618,6 +779,192 @@ export function simulateTwoSum(nums: number[] = [2, 7, 11, 15], target: number =
 }
 
 /**
+ * 4. Java Remove Outer Parentheses (Counter-based String Building)
+ */
+export function simulateRemoveOuterParentheses(inputStr: string = '(()())(())'): GeneratedSimulationResult {
+  const s = ((inputStr.trim() || '(()())(())').match(/[()]/g) || []).join('');
+  const steps: StepModel[] = [];
+
+  const strNodeId = 'str_input';
+  const ptrNodeId = 'ptr_i';
+  const countVarId = 'var_count';
+  const ansVarId = 'var_ans';
+  const noteNodeId = 'text_note';
+
+  const cellSize = 56;
+  const characters: ArrayElement[] = s.split('').map((ch, idx) => ({
+    id: `ch_${idx}`,
+    value: ch,
+    highlight: 'none',
+  }));
+
+  const baseStringNode: StringVisualNode = {
+    id: strNodeId,
+    type: 'string',
+    x: 100,
+    y: 130,
+    width: s.length * cellSize,
+    height: cellSize,
+    zIndex: 5,
+    style: {
+      backgroundColor: '#007aff',
+      borderColor: 'transparent',
+      borderWidth: 0,
+      borderRadius: 4,
+      color: '#ffffff',
+      fontSize: 24,
+    },
+    data: {
+      name: '',
+      showIndexes: true,
+      cellSize: cellSize,
+      characters: characters.map((c) => ({ ...c })),
+    },
+  };
+
+  const basePointerNode: PointerVisualNode = {
+    id: ptrNodeId,
+    type: 'pointer',
+    x: 100 + (cellSize / 2) - 22,
+    y: 130 + cellSize + 12,
+    width: 44,
+    height: 54,
+    zIndex: 15,
+    style: { color: '#00e676' },
+    data: {
+      label: 'i',
+      direction: 'up',
+      color: '#00e676',
+      targetNodeId: strNodeId,
+      targetIndex: 0,
+    },
+  };
+
+  const baseCountVar: VariableVisualNode = {
+    id: countVarId,
+    type: 'variable',
+    x: 100,
+    y: 250,
+    width: 130,
+    height: 44,
+    zIndex: 8,
+    style: { backgroundColor: '#007aff', borderColor: '#000000', borderWidth: 2, borderRadius: 12, color: '#ffffff', fontSize: 14 },
+    data: { name: 'count', value: 0, dataType: 'number', animationStyle: 'strikethrough' },
+  };
+
+  const baseAnsVar: VariableVisualNode = {
+    id: ansVarId,
+    type: 'variable',
+    x: 250,
+    y: 250,
+    width: 200,
+    height: 44,
+    zIndex: 8,
+    style: { backgroundColor: '#00c853', borderColor: '#000000', borderWidth: 2, borderRadius: 12, color: '#ffffff', fontSize: 14 },
+    data: { name: 'ans', value: '""', dataType: 'string', animationStyle: 'strikethrough' },
+  };
+
+  const baseNote: TextVisualNode = {
+    id: noteNodeId,
+    type: 'text',
+    x: 100,
+    y: 310,
+    width: 500,
+    height: 44,
+    zIndex: 4,
+    style: { backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: '#6366f1', borderWidth: 1, borderRadius: 12, color: '#e2e8f0', fontSize: 14 },
+    data: { text: `Start with count = 0 and an empty result string.`, fontSize: 14, fontWeight: 'normal', isCallout: true, badgeText: 'START' },
+  };
+
+  // Step 1: Initial State
+  steps.push({
+    id: 'step_1',
+    name: 'Step 1: Initialize Count & Result',
+    description: `Start with count = 0 and read the first character.`,
+    durationMs: 900,
+    objects: [
+      deepClone(baseStringNode),
+      deepClone(basePointerNode),
+      deepClone(baseCountVar),
+      deepClone(baseAnsVar),
+      deepClone(baseNote),
+    ],
+  });
+
+  let count = 0;
+  let ans = '';
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    let appended = false;
+    let quoteSentence = '';
+    let badge = 'STEP';
+
+    if (ch === '(') {
+      appended = count > 0;
+      if (appended) ans += ch;
+      quoteSentence = appended
+        ? `'(' at index ${i}: count is ${count} (> 0), so it's an inner bracket — keep it and append to result.`
+        : `'(' at index ${i}: count is 0, so this is an OUTER opening bracket — skip it.`;
+      count++;
+    } else {
+      count--;
+      appended = count > 0;
+      if (appended) ans += ch;
+      quoteSentence = appended
+        ? `')' at index ${i}: count is now ${count} (> 0), so it's an inner bracket — keep it and append to result.`
+        : `')' at index ${i}: count is now 0, so this is an OUTER closing bracket — skip it.`;
+    }
+    badge = appended ? 'KEEP' : 'SKIP';
+
+    const currentChars = characters.map((c, idx) => ({
+      ...c,
+      highlight: idx === i ? (appended ? 'found' : 'dimmed') : (idx < i ? 'visited' : 'none'),
+    })) as ArrayElement[];
+
+    steps.push({
+      id: `step_${i + 2}`,
+      name: `Step ${i + 2}: ${badge} '${ch}' at index ${i}`,
+      description: quoteSentence,
+      durationMs: 900,
+      objects: [
+        { ...baseStringNode, data: { ...baseStringNode.data, characters: currentChars } },
+        { ...basePointerNode, data: { ...basePointerNode.data, targetIndex: i } },
+        { ...baseCountVar, data: { ...baseCountVar.data, value: count } },
+        { ...baseAnsVar, data: { ...baseAnsVar.data, value: ans.length > 0 ? ans : '""' } },
+        { ...baseNote, data: { text: quoteSentence, fontSize: 14, fontWeight: 'normal', isCallout: true, badgeText: badge } },
+      ],
+    });
+  }
+
+  const finalQuoteSentence = `Every outer bracket has been skipped. Final result: "${ans}"`;
+
+  steps.push({
+    id: `step_${steps.length + 1}`,
+    name: `Step ${steps.length + 1}: Final Result = "${ans}"`,
+    description: finalQuoteSentence,
+    durationMs: 1000,
+    objects: [
+      { ...baseStringNode, data: { ...baseStringNode.data, characters: characters.map((c) => ({ ...c, highlight: 'visited' })) } },
+      { ...basePointerNode, data: { ...basePointerNode.data, targetIndex: Math.max(0, s.length - 1) } },
+      { ...baseCountVar, data: { ...baseCountVar.data, value: count } },
+      {
+        ...baseAnsVar,
+        style: { ...baseAnsVar.style, backgroundColor: '#10b981' },
+        data: { ...baseAnsVar.data, value: `"${ans}"` },
+      },
+      { ...baseNote, data: { text: finalQuoteSentence, fontSize: 14, fontWeight: 'normal', isCallout: true, badgeText: 'RESULT' } },
+    ],
+  });
+
+  return {
+    title: `Remove Outer Parentheses Dry Run (${s})`,
+    description: `Visual counter-based execution of removeOuterParentheses on input "${s}".`,
+    steps,
+  };
+}
+
+/**
  * Universal Code Simulator Router
  */
 export function generateSimulationFromCode(req: CodeSimulationRequest): GeneratedSimulationResult {
@@ -630,7 +977,19 @@ export function generateSimulationFromCode(req: CodeSimulationRequest): Generate
     (codeLower.includes('left') && codeLower.includes('right') && !codeLower.includes('stack'))
   ) {
     const s = req.inputData?.s || '1, 3, 5, 7, 9, 11';
-    return simulateTwoPointersPalindrome(s);
+    const result = simulateTwoPointersPalindrome(s);
+    return { ...result, steps: injectExtraInputs(result.steps, req.inputData, ['s']) };
+  }
+
+  // If removing outer parentheses (counter-based, no stack)
+  if (
+    req.algorithmType === 'remove-outer-parentheses' ||
+    codeLower.includes('removeouterparenthes') ||
+    codeLower.includes('remove outer parenthes')
+  ) {
+    const s = req.inputData?.s || '(()())(())';
+    const result = simulateRemoveOuterParentheses(s);
+    return { ...result, steps: injectExtraInputs(result.steps, req.inputData, ['s']) };
   }
 
   // If Stack algorithm
@@ -642,7 +1001,8 @@ export function generateSimulationFromCode(req: CodeSimulationRequest): Generate
     codeLower.includes('parenthes')
   ) {
     const s = req.inputData?.s || '{[()]}';
-    return simulateValidParentheses(s);
+    const result = simulateValidParentheses(s);
+    return { ...result, steps: injectExtraInputs(result.steps, req.inputData, ['s']) };
   }
 
   // If Two Sum
@@ -653,9 +1013,12 @@ export function generateSimulationFromCode(req: CodeSimulationRequest): Generate
   ) {
     const nums = req.inputData?.nums || [2, 7, 11, 15];
     const target = req.inputData?.target || 9;
-    return simulateTwoSum(nums, target);
+    const result = simulateTwoSum(nums, target);
+    return { ...result, steps: injectExtraInputs(result.steps, req.inputData, ['nums', 'target']) };
   }
 
-  // Default: Solid Block Two Pointers
-  return simulateTwoPointersPalindrome(req.inputData?.s || '1, 3, 5, 7, 9, 11');
+  // No recognized pattern: build a generic setup directly from whatever
+  // inputs were declared (arrays, nested arrays, variables) instead of
+  // guessing a default algorithm that may not match the input shape at all.
+  return simulateGenericSetup(req.inputData);
 }
