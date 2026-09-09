@@ -2,6 +2,9 @@
 
 A powerful visualization tool for Data Structures and Algorithms (DSA) simulations, featuring interactive step-by-step animation capabilities.
 
+<img width="3024" height="1712" alt="image" src="https://github.com/user-attachments/assets/2ee6e730-20fa-40ff-bba2-ee58f4bf9481" />
+
+
 ## Features
 
 - **Stack Visualization**: Timeline view showing sequential dry-run states with U-shaped stack containers
@@ -10,6 +13,10 @@ A powerful visualization tool for Data Structures and Algorithms (DSA) simulatio
 - **Theme Integration**: Consistent color theming across all components
 - **Step-Based Simulation**: Position preservation across simulation steps
 - **Interactive Editor**: Create, edit, and animate DSA operations
+
+<img width="1512" height="858" alt="Screenshot 2026-09-09 at 10 11 57 PM" src="https://github.com/user-attachments/assets/e9c742c6-e142-4ad5-a29d-e59abb24bbab" />
+
+<img width="1511" height="857" alt="Screenshot 2026-09-09 at 10 11 49 PM" src="https://github.com/user-attachments/assets/afcf8bd4-cb5e-4910-9e6e-32c31cc7135a" />
 
 ## Tech Stack
 
