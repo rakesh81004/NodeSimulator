@@ -21,7 +21,7 @@ import {
 import { VisualNodeType } from '../../types/simulation';
 
 export const Toolbar: React.FC = () => {
-  const { addObject, zoom, setZoom, resetView, simulation, updateSettings, activeTool, setActiveTool } = useSimulationStore();
+  const { addObject, zoom, setZoom, requestFitToView, simulation, updateSettings, activeTool, setActiveTool } = useSimulationStore();
   const { themeColor } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -102,9 +102,9 @@ export const Toolbar: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={resetView}
+            onClick={requestFitToView}
             className="w-9 h-9 md:w-10 md:h-10 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition-colors"
-            title="Reset View"
+            title="Fit to View"
           >
             <Maximize2 className="w-4 h-4" />
           </button>

@@ -104,6 +104,8 @@ interface SimulationState {
   setZoom: (zoom: number) => void;
   setPan: (pan: { x: number; y: number }) => void;
   resetView: () => void;
+  fitViewCounter: number;
+  requestFitToView: () => void;
   setPlaybackSpeed: (speed: number) => void;
   setLoopPlayback: (loop: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
@@ -132,6 +134,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   copiedObjects: null,
   zoom: 1.0,
   pan: { x: 0, y: 0 },
+  fitViewCounter: 0,
   isPlaying: false,
   playbackSpeed: 1.0,
   activeDiffPlan: null,
@@ -1205,6 +1208,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   setZoom: (zoom) => set({ zoom: Math.max(0.3, Math.min(2.5, zoom)) }),
   setPan: (pan) => set({ pan }),
   resetView: () => set({ zoom: 1.0, pan: { x: 0, y: 0 } }),
+  requestFitToView: () => set((s) => ({ fitViewCounter: s.fitViewCounter + 1 })),
 
   // ==========================================
   // PLAYBACK & DIFF ANIMATIONS

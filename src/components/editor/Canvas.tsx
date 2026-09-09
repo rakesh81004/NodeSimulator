@@ -29,6 +29,8 @@ export const Canvas: React.FC = () => {
     zoom,
     pan,
     setPan,
+    setZoom,
+    fitViewCounter,
     isTransitioning,
     activeDiffPlan,
     transitionProgress,
@@ -274,6 +276,51 @@ export const Canvas: React.FC = () => {
       setLastSelectedId(selectedObjectId);
     }
   }, [selectedObjectId, lastSelectedId, draggingNodeId]);
+
+  // Center + zoom-to-fit whatever the simulation actually contains, instead
+  // of always opening at zoom 1 / pan (0,0) -- a layout authored assuming a
+  // wide desktop canvas otherwise renders mostly off-screen on a narrow
+  // phone viewport, with only a sliver of content visible at the left edge.
+  const fitToView = useCallback(() => {
+    if (!simulation || !canvasRef.current) return;
+    const allObjects = simulation.steps.flatMap((s) => s.objects);
+    if (allObjects.length === 0) return;
+
+    const minX = Math.min(...allObjects.map((o) => o.x));
+    const minY = Math.min(...allObjects.map((o) => o.y));
+    const maxX = Math.max(...allObjects.map((o) => o.x + o.width));
+    const maxY = Math.max(...allObjects.map((o) => o.y + o.height));
+    const contentWidth = Math.max(1, maxX - minX);
+    const contentHeight = Math.max(1, maxY - minY);
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const PADDING = 48;
+    const availWidth = Math.max(50, rect.width - PADDING * 2);
+    const availHeight = Math.max(50, rect.height - PADDING * 2);
+
+    const fitZoom = Math.min(availWidth / contentWidth, availHeight / contentHeight, 1.2);
+    const contentCenterX = minX + contentWidth / 2;
+    const contentCenterY = minY + contentHeight / 2;
+
+    setZoom(fitZoom);
+    setPan({
+      x: rect.width / 2 - contentCenterX * fitZoom,
+      y: rect.height / 2 - contentCenterY * fitZoom,
+    });
+  }, [simulation, setZoom, setPan]);
+
+  // Auto-fit once whenever a (different) simulation is loaded.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => fitToView());
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulation?.id]);
+
+  // Manual re-center, requested via the toolbar's "Reset View" button.
+  useEffect(() => {
+    if (fitViewCounter > 0) fitToView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitViewCounter]);
 
   if (!simulation || !simulation.steps[currentStepIndex]) {
     return (
