@@ -24,6 +24,7 @@ export const Toolbar: React.FC = () => {
   const { addObject, zoom, setZoom, requestFitToView, simulation, updateSettings, activeTool, setActiveTool } = useSimulationStore();
   const { themeColor } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isLight = simulation?.settings?.theme === 'light';
 
   const handleAdd = (type: VisualNodeType, drawable?: boolean) => {
     if (drawable) {
@@ -57,9 +58,11 @@ export const Toolbar: React.FC = () => {
   return (
     <>
       {/* Desktop Toolbar (Left Sidebar) */}
-      <aside className="hidden md:flex w-20 bg-surface-900 border-r border-slate-800 flex-col items-center py-3 md:py-4 justify-between z-20 select-none overflow-y-auto">
+      <aside className={`hidden md:flex w-20 flex-col items-center py-3 md:py-4 justify-between z-20 select-none overflow-y-auto border-r ${
+        isLight ? 'bg-white border-gray-200' : 'bg-surface-900 border-slate-800'
+      }`}>
         <div className="flex flex-col items-center gap-1.5 md:gap-2 w-full px-1.5">
-          <span className="text-[9px] md:text-[10px] font-mono uppercase text-slate-500 font-bold mb-0.5 tracking-wider">
+          <span className={`text-[9px] md:text-[10px] font-mono uppercase font-bold mb-0.5 tracking-wider ${isLight ? 'text-gray-400' : 'text-slate-500'}`}>
             Nodes
           </span>
           {toolItems.map((tool) => {
@@ -83,11 +86,13 @@ export const Toolbar: React.FC = () => {
         </div>
 
         {/* Zoom & View Controls */}
-        <div className="flex flex-col items-center gap-1 md:gap-2 pt-2 border-t-2 border-slate-600 w-full px-1">
+        <div className={`flex flex-col items-center gap-1 md:gap-2 pt-2 border-t-2 w-full px-1 ${isLight ? 'border-gray-200' : 'border-slate-600'}`}>
           <button
             type="button"
             onClick={() => setZoom(zoom + 0.1)}
-            className="w-9 h-9 md:w-10 md:h-10 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition-colors"
+            className={`w-9 h-9 md:w-10 md:h-10 rounded-lg flex items-center justify-center transition-colors ${
+              isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
             title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
@@ -95,7 +100,9 @@ export const Toolbar: React.FC = () => {
           <button
             type="button"
             onClick={() => setZoom(zoom - 0.1)}
-            className="w-9 h-9 md:w-10 md:h-10 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition-colors"
+            className={`w-9 h-9 md:w-10 md:h-10 rounded-lg flex items-center justify-center transition-colors ${
+              isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
             title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
@@ -103,7 +110,9 @@ export const Toolbar: React.FC = () => {
           <button
             type="button"
             onClick={requestFitToView}
-            className="w-9 h-9 md:w-10 md:h-10 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition-colors"
+            className={`w-9 h-9 md:w-10 md:h-10 rounded-lg flex items-center justify-center transition-colors ${
+              isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
             title="Fit to View"
           >
             <Maximize2 className="w-4 h-4" />

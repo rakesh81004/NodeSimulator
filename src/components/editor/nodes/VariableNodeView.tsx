@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { VariableVisualNode } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
+import { useIsLightTheme } from '../../../utils/canvasTheme';
 import { Palette } from 'lucide-react';
 
 interface Props {
@@ -23,6 +24,7 @@ export const VariableNodeView: React.FC<Props> = ({
 }) => {
   const { simulation, currentStepIndex, updateObject } = useSimulationStore();
   const { themeColor } = useTheme();
+  const isLight = useIsLightTheme();
   const [editingValue, setEditingValue] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -84,15 +86,23 @@ export const VariableNodeView: React.FC<Props> = ({
   return (
     <div
       className={`relative inline-flex items-center gap-1.5 px-4 py-2.5 select-none transition-all ${
-        isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
+        isSelected ? (isLight ? 'ring-2 ring-orange-400' : 'ring-2 ring-white/90 shadow-2xl') : ''
       }`}
-      style={{
-        backgroundColor: accentColor,
-        border: '2px solid #000000',
-        borderRadius: 12,
-        color: '#f8fafc',
-        boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',
-      }}
+      style={
+        isLight
+          ? {
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: '#000000',
+            }
+          : {
+              backgroundColor: accentColor,
+              border: '2px solid #000000',
+              borderRadius: 12,
+              color: '#f8fafc',
+              boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',
+            }
+      }
     >
       {/* Variable Name (Click to edit) */}
       {editingName && isInteractive ? (
@@ -121,7 +131,7 @@ export const VariableNodeView: React.FC<Props> = ({
         </span>
       )}
 
-      <span className="mx-0.5 font-bold text-base text-white">=</span>
+      <span className={`mx-0.5 font-bold text-base ${isLight ? 'text-black' : 'text-white'}`}>=</span>
 
       {/* Variable Value (With Strikethrough & No Quotes) */}
       {hasTransitionDiff ? (
@@ -131,7 +141,7 @@ export const VariableNodeView: React.FC<Props> = ({
 
           {/* Old value slides up and out, like the outgoing frame in an Instagram story */}
           <span
-            className="absolute inset-0 flex items-center font-bold text-base text-white whitespace-nowrap"
+            className={`absolute inset-0 flex items-center font-bold text-base whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}
             style={{
               transform: `translateY(${-easeSlide * 100}%)`,
               opacity: 1 - easeSlide,
@@ -142,7 +152,7 @@ export const VariableNodeView: React.FC<Props> = ({
 
           {/* New value slides up into place from below */}
           <span
-            className="absolute inset-0 flex items-center font-bold text-base text-white whitespace-nowrap"
+            className={`absolute inset-0 flex items-center font-bold text-base whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}
             style={{
               transform: `translateY(${(1 - easeSlide) * 100}%)`,
               opacity: easeSlide,
@@ -169,7 +179,7 @@ export const VariableNodeView: React.FC<Props> = ({
           {/* Step-to-Step Strikethrough Badge */}
           {hasStepHistory && (
             <span
-              className="line-through text-white/60 font-mono text-xs px-1 rounded bg-black/20"
+              className={`line-through font-mono text-xs px-1 rounded ${isLight ? 'text-black/50 bg-black/5' : 'text-white/60 bg-black/20'}`}
               title={`Previous step value was ${formatDisplayValue(prevStepValue)}`}
             >
               {formatDisplayValue(prevStepValue)}
@@ -178,7 +188,7 @@ export const VariableNodeView: React.FC<Props> = ({
 
           {/* Active Current Value */}
           <span
-            className="text-white font-bold cursor-pointer transition-all text-base"
+            className={`font-bold cursor-pointer transition-all text-base ${isLight ? 'text-black' : 'text-white'}`}
             onClick={(e) => {
               e.stopPropagation();
               if (isInteractive) setEditingValue(true);

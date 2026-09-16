@@ -55,16 +55,18 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     regenerateSteps,
   } = useSimulationStore();
   const { themeColor } = useTheme();
+  const isLight = simulation?.settings?.theme === 'light';
+  const panelShell = isLight ? 'bg-white border-gray-200' : 'bg-surface-900 border-slate-800';
 
   if (simulation && selectedObjectIds.length > 1) {
     return (
-      <aside className="hidden lg:flex w-72 bg-surface-900 border-l border-slate-800 p-5 flex-col items-center justify-center text-center select-none gap-4">
+      <aside className={`hidden lg:flex w-72 border-l p-5 flex-col items-center justify-center text-center select-none gap-4 ${panelShell}`}>
         <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
           <Layers className="w-6 h-6" />
         </div>
         <div>
-          <h4 className="text-sm font-semibold text-slate-200 mb-1">{selectedObjectIds.length} objects selected</h4>
-          <p className="text-xs text-slate-500 max-w-[220px]">
+          <h4 className={`text-sm font-semibold mb-1 ${isLight ? 'text-gray-800' : 'text-slate-200'}`}>{selectedObjectIds.length} objects selected</h4>
+          <p className={`text-xs max-w-[220px] ${isLight ? 'text-gray-500' : 'text-slate-500'}`}>
             Drag any of them to move the whole group. Copy, duplicate, and delete apply to all of them together.
           </p>
         </div>
@@ -72,7 +74,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
           <button
             type="button"
             onClick={() => copySelectedObjects()}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className={`p-2 rounded-lg ${isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
             title="Copy group (Ctrl/Cmd+C)"
           >
             <Copy className="w-4 h-4" />
@@ -80,7 +82,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
           <button
             type="button"
             onClick={() => duplicateSelectedObjects()}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className={`p-2 rounded-lg ${isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
             title="Duplicate group (Ctrl/Cmd+D)"
           >
             <Layers className="w-4 h-4" />
@@ -100,12 +102,14 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
 
   if (!simulation || !selectedObjectId) {
     return (
-      <aside className="hidden lg:flex w-72 bg-surface-900 border-l border-slate-800 p-5 flex-col items-center justify-center text-center select-none">
-        <div className="w-12 h-12 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-500 mb-3">
+      <aside className={`hidden lg:flex w-72 border-l p-5 flex-col items-center justify-center text-center select-none ${panelShell}`}>
+        <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mb-3 ${
+          isLight ? 'bg-gray-100 border-gray-300 text-gray-400' : 'bg-slate-800/80 border-slate-700 text-slate-500'
+        }`}>
           <Sliders className="w-6 h-6" />
         </div>
-        <h4 className="text-sm font-semibold text-slate-300 mb-1">Properties Inspector</h4>
-        <p className="text-xs text-slate-500 max-w-[200px]">
+        <h4 className={`text-sm font-semibold mb-1 ${isLight ? 'text-gray-700' : 'text-slate-300'}`}>Properties Inspector</h4>
+        <p className={`text-xs max-w-[200px] ${isLight ? 'text-gray-500' : 'text-slate-500'}`}>
           Click any element on canvas to edit arrays, variables, pointers, and colors. Drag on empty canvas to select multiple.
         </p>
       </aside>
@@ -200,17 +204,17 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
       />
 
       {/* Main Panel: Responsive Bottom Sheet on Mobile, Right Sidebar on Desktop */}
-      <aside className="fixed inset-x-0 bottom-0 max-h-[55vh] rounded-t-3xl lg:rounded-none lg:static lg:max-h-full lg:w-72 bg-surface-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col overflow-y-auto select-none z-50 shadow-2xl lg:shadow-none animate-slide-up">
+      <aside className={`fixed inset-x-0 bottom-0 max-h-[55vh] rounded-t-3xl lg:rounded-none lg:static lg:max-h-full lg:w-72 border-t lg:border-t-0 lg:border-l flex flex-col overflow-y-auto select-none z-50 shadow-2xl lg:shadow-none animate-slide-up ${panelShell}`}>
         {/* Mobile Drag Indicator Handle */}
-        <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-2 mb-1 lg:hidden" />
+        <div className={`w-12 h-1.5 rounded-full mx-auto mt-2 mb-1 lg:hidden ${isLight ? 'bg-gray-300' : 'bg-slate-700'}`} />
 
         {/* Header */}
-        <div className="p-3.5 lg:p-4 border-b-2 border-slate-600 flex items-center justify-between">
+        <div className={`p-3.5 lg:p-4 border-b-2 flex items-center justify-between ${isLight ? 'border-gray-200' : 'border-slate-600'}`}>
           <div>
-            <span className="text-[10px] font-mono uppercase text-indigo-400 font-bold tracking-wider">
+            <span className={`text-[10px] font-mono uppercase font-bold tracking-wider ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`}>
               Edit {selectedNode.type}
             </span>
-            <h3 className="text-sm font-bold text-slate-200 truncate max-w-[140px]">
+            <h3 className={`text-sm font-bold truncate max-w-[140px] ${isLight ? 'text-gray-900' : 'text-slate-200'}`}>
               {(selectedNode as any).data?.name || (selectedNode as any).data?.label || selectedNode.id}
             </h3>
           </div>
@@ -218,8 +222,8 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
             <button
               type="button"
               onClick={() => updateObject(selectedNode.id, { locked: !selectedNode.locked } as any)}
-              className={`p-1.5 rounded-lg hover:bg-slate-800 ${
-                selectedNode.locked ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-white'
+              className={`p-1.5 rounded-lg ${isLight ? 'hover:bg-gray-100' : 'hover:bg-slate-800'} ${
+                selectedNode.locked ? 'text-amber-400 hover:text-amber-300' : isLight ? 'text-gray-500 hover:text-black' : 'text-slate-400 hover:text-white'
               }`}
               title={selectedNode.locked ? 'Unlock -- allow selecting on canvas again' : 'Lock -- clicks on canvas will pass through to whatever is underneath'}
             >
@@ -228,7 +232,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
             <button
               type="button"
               onClick={() => duplicateObject(selectedNode.id)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              className={`p-1.5 rounded-lg ${isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
               title="Duplicate"
             >
               <Copy className="w-4 h-4" />
@@ -247,7 +251,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                 setSelectedObjectId(null);
                 if (onCloseMobile) onCloseMobile();
               }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              className={`p-1.5 rounded-lg ${isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
               title="Close panel"
             >
               <X className="w-4 h-4" />
@@ -255,7 +259,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
           </div>
         </div>
 
-        <div className="p-4 flex flex-col gap-4 flex-1">
+        <div className={`p-4 flex flex-col gap-4 flex-1 ${isLight ? 'text-gray-800' : ''}`}>
           {/* Variable Node Configuration */}
           {selectedNode.type === 'variable' && (
             <div className="flex flex-col gap-3">

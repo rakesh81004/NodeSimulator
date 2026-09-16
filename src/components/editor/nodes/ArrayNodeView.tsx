@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrayVisualNode, ArrayElement } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
+import { useIsLightTheme, LIGHT_ACCENT } from '../../../utils/canvasTheme';
 import { Plus, Trash2, Palette, GripVertical, X } from 'lucide-react';
 
 interface Props {
@@ -20,7 +21,9 @@ export const ArrayNodeView: React.FC<Props> = ({
   transitionProgress = 1.0,
 }) => {
   const { updateObject } = useSimulationStore();
-  const { themeColor, separatorColor } = useTheme();
+  const { themeColor, separatorColor: darkSeparatorColor } = useTheme();
+  const isLight = useIsLightTheme();
+  const separatorColor = isLight ? LIGHT_ACCENT : darkSeparatorColor;
   const [editingCellId, setEditingCellId] = useState<string | null>(null);
   const [paletteCellId, setPaletteCellId] = useState<string | null>(null);
   const [draggedCellId, setDraggedCellId] = useState<string | null>(null);
@@ -154,9 +157,15 @@ export const ArrayNodeView: React.FC<Props> = ({
       case 'dimmed':
         return '#1e293b';
       default:
-        return themeColor;
+        return isLight ? '#ffffff' : themeColor;
     }
   };
+
+  // Worksheet-style light mode keeps highlighted/custom-colored cells as-is
+  // (still meaningful signal) but renders an untouched cell as plain black
+  // text on white, matching the reference diagrams, instead of white-on-blue.
+  const isPlainCell = (cell: ArrayElement) => isLight && !(cell as any).color && (!cell.highlight || cell.highlight === 'none');
+  const getCellTextColor = (cell: ArrayElement) => (isPlainCell(cell) ? '#000000' : '#ffffff');
 
   const formatDisplayValue = (val: any) => {
     if (val === undefined || val === null) return '';
@@ -189,7 +198,7 @@ export const ArrayNodeView: React.FC<Props> = ({
       style={{
         border: `2px solid ${separatorColor}`,
         borderRadius: 2,
-        backgroundColor: separatorColor,
+        backgroundColor: isLight ? '#ffffff' : separatorColor,
       }}
     >
       {/* Seamless Joined Solid Block Strip with Solid Black Separator Lines */}
@@ -235,6 +244,7 @@ export const ArrayNodeView: React.FC<Props> = ({
           // Check for value replacement crossfade
           const valChange = valueChanges?.find((v) => v.index === idx);
           const bgColor = getCellBgColor(cell);
+          const textColor = getCellTextColor(cell);
 
           return (
             <div
@@ -244,8 +254,8 @@ export const ArrayNodeView: React.FC<Props> = ({
             >
               {/* Optional Minimal Index */}
               {showIndexes && (
-                <span 
-                  className="text-[11px] font-mono font-bold text-slate-400 mb-1 cursor-grab active:cursor-grabbing"
+                <span
+                  className={`text-[11px] font-mono font-bold mb-1 cursor-grab active:cursor-grabbing ${isLight ? 'text-slate-600' : 'text-slate-400'}`}
                   title="Drag here to move the entire array"
                 >
                   {idx}
@@ -254,7 +264,7 @@ export const ArrayNodeView: React.FC<Props> = ({
 
               {/* Solid Cell Box with Black Vertical Divider */}
               <div
-                className={`relative flex items-center justify-center font-sans font-bold text-white transition-colors cursor-pointer mr-0.5 last:mr-0 ${
+                className={`relative flex items-center justify-center font-sans font-bold transition-colors cursor-pointer mr-0.5 last:mr-0 ${
                   isInteractive ? 'cursor-move' : 'cursor-pointer'
                 } ${draggedCellId === cell.id ? 'opacity-50 scale-95' : ''} ${
                   dragOverCellId === cell.id ? 'ring-2 ring-white scale-105' : ''
@@ -263,8 +273,9 @@ export const ArrayNodeView: React.FC<Props> = ({
                   width: `${cellSize}px`,
                   height: `${cellSize}px`,
                   backgroundColor: bgColor,
+                  color: textColor,
                   fontSize: '24px',
-                  border: '2px solid #000000',
+                  border: `2px solid ${isLight ? LIGHT_ACCENT : '#000000'}`,
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
                   boxShadow: isSwappingCell ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,
@@ -306,21 +317,22 @@ export const ArrayNodeView: React.FC<Props> = ({
                   <div className="relative w-full h-full flex items-center justify-center">
                     {/* Old value fading out */}
                     <span
-                      className="absolute font-sans font-bold text-white text-2xl transition-opacity"
+                      className="absolute font-sans font-bold text-2xl transition-opacity"
                       style={{
                         opacity: Math.max(0, 1 - t * 2),
                         transform: `scale(${1 - t * 0.2})`,
+                        color: textColor,
                       }}
                     >
                       {formatDisplayValue(valChange.oldValue)}
                     </span>
                     {/* New value fading in */}
                     <span
-                      className="absolute font-sans font-bold text-white text-2xl transition-opacity"
+                      className="absolute font-sans font-bold text-2xl transition-opacity"
                       style={{
                         opacity: Math.max(0, (t - 0.4) * 1.67),
                         transform: `scale(${0.8 + t * 0.2})`,
-                        color: '#ffeb3b',
+                        color: isLight ? '#dc2626' : '#ffeb3b',
                       }}
                     >
                       {formatDisplayValue(valChange.newValue)}

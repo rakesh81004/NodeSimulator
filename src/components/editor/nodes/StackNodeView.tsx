@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StackVisualNode, ArrayElement } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
+import { useIsLightTheme } from '../../../utils/canvasTheme';
 import { Plus, LogOut, Palette, X } from 'lucide-react';
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive = true }) => {
   const { updateObject } = useSimulationStore();
   const { themeColor, separatorColor } = useTheme();
+  const isLight = useIsLightTheme();
   const [editingElId, setEditingElId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
@@ -121,7 +123,7 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
           className="flex items-center justify-between p-2 mb-1.5 rounded-xl"
           style={{ backgroundColor: '#0f172a', border: `2px solid ${primaryColor}` }}
         >
-          <span className="font-sans font-bold text-xs text-purple-300 tracking-wide">
+          <span className={`font-sans font-bold text-xs tracking-wide ${isLight ? 'text-purple-700' : 'text-purple-300'}`}>
             {name}
           </span>
 
@@ -270,7 +272,7 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
 
       {/* Stack Name - Below container, centered */}
       <div className="flex items-center justify-center pt-2 pb-1">
-        <span className="font-sans font-bold text-xs text-purple-300 tracking-wide">
+        <span className={`font-sans font-bold text-xs tracking-wide ${isLight ? 'text-purple-700' : 'text-purple-300'}`}>
           {name}
         </span>
       </div>

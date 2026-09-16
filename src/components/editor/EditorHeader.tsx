@@ -14,6 +14,8 @@ import {
   Code2,
   Sliders,
   Layers,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface Props {
@@ -40,12 +42,18 @@ export const EditorHeader: React.FC<Props> = ({
     lastSavedAt,
     saveSimulation,
     selectedObjectId,
+    updateSettings,
   } = useSimulationStore();
   const { themeColor } = useTheme();
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
   if (!simulation) return null;
+
+  const isLight = simulation.settings.theme === 'light';
+  const chromeBtn = isLight
+    ? 'border-gray-300 bg-white hover:bg-gray-100 text-gray-700'
+    : 'border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300';
 
   const handleExportJson = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(simulation, null, 2));
@@ -61,13 +69,17 @@ export const EditorHeader: React.FC<Props> = ({
   };
 
   return (
-    <header className="h-14 bg-surface-900 border-b border-slate-800 px-2 md:px-4 flex items-center justify-between gap-2 md:gap-4 select-none z-30">
+    <header className={`h-14 px-2 md:px-4 flex items-center justify-between gap-2 md:gap-4 select-none z-30 border-b ${
+      isLight ? 'bg-white border-gray-200' : 'bg-surface-900 border-slate-800'
+    }`}>
       {/* Left: Back button + Title */}
       <div className="flex items-center gap-2 md:gap-3 min-w-0">
         <button
           type="button"
           onClick={onBackToDashboard}
-          className="p-1.5 md:p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className={`p-1.5 md:p-2 rounded-lg transition-colors ${
+            isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
           title="Back to Dashboard"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -79,7 +91,9 @@ export const EditorHeader: React.FC<Props> = ({
               <input
                 type="text"
                 autoFocus
-                className="bg-slate-950 border border-indigo-500 rounded px-2 py-0.5 text-xs md:text-sm font-bold text-white outline-none font-sans"
+                className={`border rounded px-2 py-0.5 text-xs md:text-sm font-bold outline-none font-sans ${
+                  isLight ? 'bg-white border-indigo-400 text-black' : 'bg-slate-950 border-indigo-500 text-white'
+                }`}
                 value={simulation.name}
                 onChange={(e) => setSimulationTitle(e.target.value)}
                 onBlur={() => setIsEditingTitle(false)}
@@ -90,7 +104,9 @@ export const EditorHeader: React.FC<Props> = ({
             ) : (
               <h1
                 onDoubleClick={() => setIsEditingTitle(true)}
-                className="text-xs md:text-sm font-bold text-slate-100 hover:text-indigo-300 cursor-pointer transition-colors truncate max-w-[120px] sm:max-w-[200px]"
+                className={`text-xs md:text-sm font-bold cursor-pointer transition-colors truncate max-w-[120px] sm:max-w-[200px] ${
+                  isLight ? 'text-gray-900 hover:text-indigo-600' : 'text-slate-100 hover:text-indigo-300'
+                }`}
                 title="Double click to edit simulation title"
               >
                 {simulation.name}
@@ -144,10 +160,10 @@ export const EditorHeader: React.FC<Props> = ({
           <button
             type="button"
             onClick={onToggleStackTimeline}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm ${
-              showStackTimeline 
-                ? 'bg-purple-600/20 border-purple-500/50 text-purple-300' 
-                : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-300'
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm border ${
+              showStackTimeline
+                ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                : chromeBtn
             }`}
             title="Toggle Stack Timeline Visualization"
           >
@@ -159,7 +175,7 @@ export const EditorHeader: React.FC<Props> = ({
         <button
           type="button"
           onClick={() => saveSimulation()}
-          className="p-1.5 md:px-2.5 md:py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors"
+          className={`p-1.5 md:px-2.5 md:py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${chromeBtn}`}
           title="Save"
         >
           <Save className="w-3.5 h-3.5 text-indigo-400" />
@@ -169,7 +185,7 @@ export const EditorHeader: React.FC<Props> = ({
         <button
           type="button"
           onClick={handleExportJson}
-          className="p-1.5 md:px-2.5 md:py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors hidden sm:flex"
+          className={`p-1.5 md:px-2.5 md:py-1.5 rounded-lg border text-xs font-medium items-center gap-1.5 transition-colors hidden sm:flex ${chromeBtn}`}
           title="Export JSON"
         >
           <Download className="w-3.5 h-3.5 text-sky-400" />
@@ -188,12 +204,28 @@ export const EditorHeader: React.FC<Props> = ({
           </button>
         )}
 
+        <button
+          type="button"
+          onClick={() => updateSettings({ theme: simulation.settings.theme === 'light' ? 'dark' : 'light' })}
+          className={`p-1.5 md:px-2.5 md:py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${chromeBtn}`}
+          title={simulation.settings.theme === 'light' ? 'Switch canvas to dark mode' : 'Switch canvas to light "worksheet" mode'}
+        >
+          {simulation.settings.theme === 'light' ? (
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+          ) : (
+            <Moon className="w-3.5 h-3.5 text-indigo-300" />
+          )}
+          <span className="hidden md:inline">{simulation.settings.theme === 'light' ? 'Light' : 'Dark'}</span>
+        </button>
+
         <ThemePicker />
-        
+
         <button
           type="button"
           onClick={onOpenShortcuts}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors hidden md:block"
+          className={`p-1.5 rounded-lg transition-colors hidden md:block ${
+            isLight ? 'text-gray-500 hover:text-black hover:bg-gray-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
           title="Shortcuts"
         >
           <HelpCircle className="w-4 h-4" />

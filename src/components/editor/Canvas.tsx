@@ -334,6 +334,7 @@ export const Canvas: React.FC = () => {
   const objects = currentStep.objects;
   const snapEnabled = simulation.settings?.snapToGrid ?? true;
   const gridSize = simulation.settings?.gridSize ?? 20;
+  const isLightCanvas = simulation.settings?.theme === 'light';
 
   const isNodeSelected = (id: string) =>
     selectedObjectId === id || selectedObjectIds.includes(id);
@@ -818,21 +819,24 @@ export const Canvas: React.FC = () => {
       onTouchStart={handleCanvasTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleEndDrag}
-      className={`flex-1 relative overflow-hidden bg-[#070b14] select-none touch-none ${
+      className={`flex-1 relative overflow-hidden select-none touch-none ${
         isPanning ? 'cursor-grabbing' : isSpacePressed ? 'cursor-grab' : 'cursor-crosshair'
       }`}
       style={{
-        backgroundImage: `radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)`,
+        backgroundColor: isLightCanvas ? '#ffffff' : '#070b14',
+        backgroundImage: `radial-gradient(${isLightCanvas ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)'} 1px, transparent 1px)`,
         backgroundSize: `${gridSize * zoom}px ${gridSize * zoom}px`,
         backgroundPosition: `${pan.x}px ${pan.y}px`,
       }}
     >
       {/* Top Left: Algorithm Overview HUD Card -- optional, manually-written note */}
       {showOverview ? (
-        <div className="absolute top-4 left-4 z-30 bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 shadow-xl text-xs max-w-xs transition-all pointer-events-auto select-none hidden sm:block">
-          <div className="flex items-center justify-between gap-3 mb-2 pb-1.5 border-b border-slate-800/80">
-            <div className="flex items-center gap-1.5 font-bold text-slate-200">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+        <div className={`absolute top-4 left-4 z-30 backdrop-blur-md border rounded-2xl p-3.5 shadow-xl text-xs max-w-xs transition-all pointer-events-auto select-none hidden sm:block ${
+          isLightCanvas ? 'bg-white/90 border-gray-200' : 'bg-slate-950/80 border-slate-800'
+        }`}>
+          <div className={`flex items-center justify-between gap-3 mb-2 pb-1.5 border-b ${isLightCanvas ? 'border-gray-200' : 'border-slate-800/80'}`}>
+            <div className={`flex items-center gap-1.5 font-bold ${isLightCanvas ? 'text-gray-800' : 'text-slate-200'}`}>
+              <Sparkles className={`w-3.5 h-3.5 ${isLightCanvas ? 'text-orange-500' : 'text-indigo-400'}`} />
               <span>Algorithm Overview</span>
             </div>
             <div className="flex items-center gap-2">
@@ -840,7 +844,7 @@ export const Canvas: React.FC = () => {
                 <button
                   type="button"
                   onClick={startEditingOverview}
-                  className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+                  className={`text-[10px] font-mono ${isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   edit
                 </button>
@@ -848,7 +852,7 @@ export const Canvas: React.FC = () => {
               <button
                 type="button"
                 onClick={() => updateSettings({ showAlgorithmOverview: false })}
-                className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+                className={`text-[10px] font-mono ${isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 hide
               </button>
@@ -864,13 +868,15 @@ export const Canvas: React.FC = () => {
                 onChange={(e) => setOverviewDraft(e.target.value)}
                 onKeyDown={(e) => e.stopPropagation()}
                 placeholder="Write your own notes about this algorithm..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[11px] font-mono text-slate-200 outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                className={`w-full border rounded-lg p-2 text-[11px] font-mono outline-none focus:border-indigo-500 resize-none leading-relaxed ${
+                  isLightCanvas ? 'bg-gray-50 border-gray-300 text-gray-800' : 'bg-slate-900 border-slate-700 text-slate-200'
+                }`}
               />
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsEditingOverview(false)}
-                  className="text-[10px] text-slate-500 hover:text-slate-300 font-mono"
+                  className={`text-[10px] font-mono ${isLightCanvas ? 'text-gray-500 hover:text-gray-700' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   cancel
                 </button>
@@ -886,7 +892,7 @@ export const Canvas: React.FC = () => {
           ) : overviewText ? (
             <p
               onClick={startEditingOverview}
-              className="font-mono text-[11px] text-slate-300 whitespace-pre-wrap leading-relaxed cursor-text"
+              className={`font-mono text-[11px] whitespace-pre-wrap leading-relaxed cursor-text ${isLightCanvas ? 'text-gray-700' : 'text-slate-300'}`}
               title="Click to edit"
             >
               {overviewText}
@@ -894,7 +900,7 @@ export const Canvas: React.FC = () => {
           ) : (
             <p
               onClick={startEditingOverview}
-              className="font-mono text-[11px] text-slate-500 italic cursor-text"
+              className={`font-mono text-[11px] italic cursor-text ${isLightCanvas ? 'text-gray-400' : 'text-slate-500'}`}
             >
               Click "edit" to write your own notes here.
             </p>
@@ -904,7 +910,11 @@ export const Canvas: React.FC = () => {
         <button
           type="button"
           onClick={() => updateSettings({ showAlgorithmOverview: true })}
-          className="absolute top-4 left-4 z-30 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-slate-400 hover:text-slate-200 hover:border-slate-700 transition-colors hidden sm:block"
+          className={`absolute top-4 left-4 z-30 px-2.5 py-1 rounded-lg backdrop-blur-md border text-[11px] font-mono transition-colors hidden sm:block ${
+            isLightCanvas
+              ? 'bg-white/90 border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
         >
           + Overview
         </button>

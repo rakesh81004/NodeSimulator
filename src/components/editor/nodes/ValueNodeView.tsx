@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ValueVisualNode } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
+import { useIsLightTheme } from '../../../utils/canvasTheme';
 import { Palette, X } from 'lucide-react';
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 export const ValueNodeView: React.FC<Props> = ({ node, isSelected, isInteractive = true }) => {
   const { updateObject } = useSimulationStore();
   const { themeColor } = useTheme();
+  const isLight = useIsLightTheme();
   const [editingValue, setEditingValue] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
@@ -56,15 +58,19 @@ export const ValueNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
   return (
     <div
       className={`relative inline-flex items-center gap-1.5 px-4 py-2.5 select-none transition-all ${
-        isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
+        isSelected ? (isLight ? 'ring-2 ring-orange-400' : 'ring-2 ring-white/90 shadow-2xl') : ''
       }`}
-      style={{
-        backgroundColor: accentColor,
-        border: '2px solid #000000',
-        borderRadius: 12,
-        color: '#f8fafc',
-        boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',
-      }}
+      style={
+        isLight
+          ? { backgroundColor: 'transparent', border: 'none', color: '#000000' }
+          : {
+              backgroundColor: accentColor,
+              border: '2px solid #000000',
+              borderRadius: 12,
+              color: '#f8fafc',
+              boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',
+            }
+      }
     >
       {editingValue && isInteractive ? (
         <input

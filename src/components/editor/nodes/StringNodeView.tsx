@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StringVisualNode, ArrayElement } from '../../../types/simulation';
 import { useSimulationStore } from '../../../store/simulationStore';
 import { useTheme } from '../../../utils/themeConfig';
+import { useIsLightTheme, LIGHT_ACCENT } from '../../../utils/canvasTheme';
 import { Plus, Trash2, Palette, GripVertical, X } from 'lucide-react';
 
 interface Props {
@@ -20,7 +21,9 @@ export const StringNodeView: React.FC<Props> = ({
   transitionProgress = 1.0,
 }) => {
   const { updateObject } = useSimulationStore();
-  const { themeColor, separatorColor } = useTheme();
+  const { themeColor, separatorColor: darkSeparatorColor } = useTheme();
+  const isLight = useIsLightTheme();
+  const separatorColor = isLight ? LIGHT_ACCENT : darkSeparatorColor;
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [paletteCharId, setPaletteCharId] = useState<string | null>(null);
   const [draggedCharId, setDraggedCharId] = useState<string | null>(null);
@@ -158,9 +161,12 @@ export const StringNodeView: React.FC<Props> = ({
       case 'dimmed':
         return '#1e293b'; // Dimmed
       default:
-        return themeColor; // Use theme color as default
+        return isLight ? '#ffffff' : themeColor; // Use theme color as default
     }
   };
+
+  const isPlainCell = (charEl: ArrayElement) => isLight && !(charEl as any).color && (!charEl.highlight || charEl.highlight === 'none');
+  const getCellTextColor = (charEl: ArrayElement) => (isPlainCell(charEl) ? '#000000' : '#ffffff');
 
   const formatDisplayValue = (val: any) => {
     if (val === undefined || val === null) return '';
@@ -184,7 +190,7 @@ export const StringNodeView: React.FC<Props> = ({
       style={{
         border: `2px solid ${separatorColor}`,
         borderRadius: 2,
-        backgroundColor: separatorColor,
+        backgroundColor: isLight ? '#ffffff' : separatorColor,
       }}
       // Allow Canvas drag when clicking on non-element areas
     >
@@ -230,13 +236,14 @@ export const StringNodeView: React.FC<Props> = ({
 
           const valChange = valueChanges?.find((v) => v.index === idx);
           const bgColor = getCellBgColor(ch);
+          const textColor = getCellTextColor(ch);
 
           return (
             <div key={ch.id} className="relative flex flex-col items-center group" style={{ zIndex }}>
               {/* Optional Minimal Index */}
               {showIndexes && (
-                <span 
-                  className="text-[11px] font-mono font-bold text-slate-400 mb-1 cursor-grab active:cursor-grabbing"
+                <span
+                  className={`text-[11px] font-mono font-bold mb-1 cursor-grab active:cursor-grabbing ${isLight ? 'text-slate-600' : 'text-slate-400'}`}
                   title="Drag here to move the entire string"
                 >
                   {idx}
@@ -245,7 +252,7 @@ export const StringNodeView: React.FC<Props> = ({
 
               {/* Solid Character Cell Box with Black Vertical Divider */}
               <div
-                className={`relative flex items-center justify-center font-sans font-bold text-white transition-colors cursor-pointer mr-0.5 last:mr-0 ${
+                className={`relative flex items-center justify-center font-sans font-bold transition-colors cursor-pointer mr-0.5 last:mr-0 ${
                   isInteractive ? 'cursor-move' : 'cursor-pointer'
                 } ${draggedCharId === ch.id ? 'opacity-50 scale-95' : ''} ${
                   dragOverCharId === ch.id ? 'ring-2 ring-white scale-105' : ''
@@ -254,8 +261,9 @@ export const StringNodeView: React.FC<Props> = ({
                   width: `${cellSize}px`,
                   height: `${cellSize}px`,
                   backgroundColor: bgColor,
+                  color: textColor,
                   fontSize: '24px',
-                  border: '2px solid #000000',
+                  border: `2px solid ${isLight ? LIGHT_ACCENT : '#000000'}`,
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
                   boxShadow: isSwappingChar ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,
@@ -297,20 +305,21 @@ export const StringNodeView: React.FC<Props> = ({
                 ) : valChange && isTransitionActive && !isSwappingChar ? (
                   <div className="relative w-full h-full flex items-center justify-center">
                     <span
-                      className="absolute font-sans font-bold text-white text-2xl transition-opacity"
+                      className="absolute font-sans font-bold text-2xl transition-opacity"
                       style={{
                         opacity: Math.max(0, 1 - t * 2),
                         transform: `scale(${1 - t * 0.2})`,
+                        color: textColor,
                       }}
                     >
                       {formatDisplayValue(valChange.oldValue)}
                     </span>
                     <span
-                      className="absolute font-sans font-bold text-white text-2xl transition-opacity"
+                      className="absolute font-sans font-bold text-2xl transition-opacity"
                       style={{
                         opacity: Math.max(0, (t - 0.4) * 1.67),
                         transform: `scale(${0.8 + t * 0.2})`,
-                        color: '#ffeb3b',
+                        color: isLight ? '#dc2626' : '#ffeb3b',
                       }}
                     >
                       {formatDisplayValue(valChange.newValue)}
