@@ -54,6 +54,7 @@ export const ValueNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
   ];
 
   const accentColor = (node.style as any)?.backgroundColor || themeColor;
+  const customBorderColor = (node.style as any)?.borderColor as string | undefined;
 
   return (
     <div
@@ -62,10 +63,10 @@ export const ValueNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
       }`}
       style={
         isLight
-          ? { backgroundColor: 'transparent', border: 'none', color: '#000000' }
+          ? { backgroundColor: 'transparent', border: customBorderColor ? `2px solid ${customBorderColor}` : 'none', borderRadius: 8, color: '#000000' }
           : {
               backgroundColor: accentColor,
-              border: '2px solid #000000',
+              border: `2px solid ${customBorderColor || '#000000'}`,
               borderRadius: 12,
               color: '#f8fafc',
               boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',

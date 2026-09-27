@@ -24,6 +24,9 @@ export const ArrayNodeView: React.FC<Props> = ({
   const { themeColor, separatorColor: darkSeparatorColor } = useTheme();
   const isLight = useIsLightTheme();
   const separatorColor = isLight ? LIGHT_ACCENT : darkSeparatorColor;
+  // User-chosen border color (Properties panel) overrides the theme default,
+  // same as Rectangle's separate Fill/Border pickers.
+  const borderColor = (node.style as any)?.borderColor || separatorColor;
   const [editingCellId, setEditingCellId] = useState<string | null>(null);
   const [paletteCellId, setPaletteCellId] = useState<string | null>(null);
   const [draggedCellId, setDraggedCellId] = useState<string | null>(null);
@@ -196,9 +199,9 @@ export const ArrayNodeView: React.FC<Props> = ({
         isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
       }`}
       style={{
-        border: `2px solid ${separatorColor}`,
+        border: `2px solid ${borderColor}`,
         borderRadius: 2,
-        backgroundColor: isLight ? '#ffffff' : separatorColor,
+        backgroundColor: isLight ? '#ffffff' : borderColor,
       }}
     >
       {/* Seamless Joined Solid Block Strip with Solid Black Separator Lines */}
@@ -275,7 +278,7 @@ export const ArrayNodeView: React.FC<Props> = ({
                   backgroundColor: bgColor,
                   color: textColor,
                   fontSize: '24px',
-                  border: `2px solid ${isLight ? LIGHT_ACCENT : '#000000'}`,
+                  border: `2px solid ${(node.style as any)?.borderColor || (isLight ? LIGHT_ACCENT : '#000000')}`,
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
                   boxShadow: isSwappingCell ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,

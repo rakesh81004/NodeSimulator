@@ -75,6 +75,7 @@ export const VariableNodeView: React.FC<Props> = ({
   ];
 
   const accentColor = (node.style as any)?.backgroundColor || (isResult ? '#00c853' : themeColor);
+  const customBorderColor = (node.style as any)?.borderColor as string | undefined;
 
   // Eased slide progress for the old->new value transition
   const slideT = transitionProgress;
@@ -92,12 +93,13 @@ export const VariableNodeView: React.FC<Props> = ({
         isLight
           ? {
               backgroundColor: 'transparent',
-              border: 'none',
+              border: customBorderColor ? `2px solid ${customBorderColor}` : 'none',
+              borderRadius: 8,
               color: '#000000',
             }
           : {
               backgroundColor: accentColor,
-              border: '2px solid #000000',
+              border: `2px solid ${customBorderColor || '#000000'}`,
               borderRadius: 12,
               color: '#f8fafc',
               boxShadow: '0 8px 16px -4px rgba(0,0,0,0.4)',

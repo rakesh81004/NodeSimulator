@@ -14,6 +14,13 @@ function mysqlConfig() {
     user: process.env.MYSQL_USER || 'root',
     password: process.env.MYSQL_PASSWORD || '',
     database: process.env.MYSQL_DATABASE || 'node_simulator',
+    // Managed MySQL hosts (PlanetScale, TiDB Cloud, Aiven, Railway, ...) require
+    // TLS. Set MYSQL_SSL=true (and optionally MYSQL_SSL_REJECT_UNAUTHORIZED=false
+    // for hosts using a cert your CA bundle doesn't recognize) in that env.
+    ssl:
+      process.env.MYSQL_SSL === 'true'
+        ? { rejectUnauthorized: process.env.MYSQL_SSL_REJECT_UNAUTHORIZED !== 'false' }
+        : undefined,
   };
 }
 
@@ -55,23 +62,35 @@ export async function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T
 }
 
 export async function initDatabase() {
+  // Reuse an already-initialized pool across warm serverless invocations
+  // instead of reconnecting (and re-running every CREATE TABLE) on each call.
+  if (pool) return;
+
   const cfg = mysqlConfig();
   console.log(`[DB] Connecting to MySQL at ${cfg.host}:${cfg.port} (database: ${cfg.database})`);
 
-  const admin = await mysql.createConnection({
-    host: cfg.host,
-    port: cfg.port,
-    user: cfg.user,
-    password: cfg.password,
-    multipleStatements: true,
-  });
-
+  // Managed hosts (PlanetScale, TiDB Cloud, ...) commonly pre-provision the
+  // database and don't grant the app user CREATE DATABASE -- skip trying if
+  // that fails instead of crashing startup; the database presumably already
+  // exists there.
   try {
-    await admin.query(
-      `CREATE DATABASE IF NOT EXISTS \`${cfg.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-  } finally {
-    await admin.end();
+    const admin = await mysql.createConnection({
+      host: cfg.host,
+      port: cfg.port,
+      user: cfg.user,
+      password: cfg.password,
+      ssl: cfg.ssl,
+      multipleStatements: true,
+    });
+    try {
+      await admin.query(
+        `CREATE DATABASE IF NOT EXISTS \`${cfg.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+    } finally {
+      await admin.end();
+    }
+  } catch (err: any) {
+    console.warn('[DB] Could not CREATE DATABASE (likely lacks privilege on a managed host) -- assuming it already exists.', err?.message || err);
   }
 
   pool = mysql.createPool({
@@ -80,8 +99,9 @@ export async function initDatabase() {
     user: cfg.user,
     password: cfg.password,
     database: cfg.database,
+    ssl: cfg.ssl,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
     namedPlaceholders: false,
   });
 

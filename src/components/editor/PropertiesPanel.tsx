@@ -337,6 +337,27 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   ))}
                 </div>
               </div>
+
+              {/* Border Color -- independent of the fill, same idea as Rectangle's Fill/Border split */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -414,6 +435,27 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       onClick={() =>
                         updateObject(selectedNode.id, {
                           style: { ...selectedNode.style, backgroundColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Border Color -- independent of the fill */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
                         } as any)
                       }
                       className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
@@ -508,6 +550,27 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                 </div>
               </div>
 
+              {/* Border Color -- the divider/outline color, independent of per-cell fill */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
               {rerunButton}
             </div>
           )}
@@ -573,6 +636,27 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                           data: { ...(selectedNode as StringVisualNode).data, characters: nextChars },
                         } as any);
                       }}
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Border Color -- the divider/outline color, independent of per-cell fill */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
                       className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
                       style={{ backgroundColor: p.color }}
                       title={p.label}
@@ -1061,6 +1145,48 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       onClick={() =>
                         updateObject(selectedNode.id, {
                           data: { ...(selectedNode as RangeVisualNode).data, color: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.type === 'text' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-indigo-400">Quote Note</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Note Text</label>
+                <textarea
+                  rows={3}
+                  value={(selectedNode as TextVisualNode).data.text || ''}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as TextVisualNode).data, text: e.target.value },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-indigo-400 outline-none font-mono resize-none leading-relaxed"
+                  placeholder="Step explanation..."
+                />
+              </div>
+
+              {/* Border Color -- independent of the fill */}
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
                         } as any)
                       }
                       className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"

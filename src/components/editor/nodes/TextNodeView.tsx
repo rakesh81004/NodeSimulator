@@ -16,6 +16,7 @@ export const TextNodeView: React.FC<Props> = ({ node, isSelected, isInteractive 
   const isLight = useIsLightTheme();
 
   const { text = '', fontSize = 14, fontWeight = 'normal', isCallout = false, badgeText } = node.data;
+  const customBorderColor = (node.style as any)?.borderColor as string | undefined;
 
   const handleTextChange = (newText: string) => {
     updateObject(node.id, {
@@ -32,8 +33,8 @@ export const TextNodeView: React.FC<Props> = ({ node, isSelected, isInteractive 
         isLight
           ? {
               backgroundColor: '#ffffff',
-              borderColor: '#e5e7eb',
-              borderLeftColor: '#f97316',
+              borderColor: customBorderColor || '#e5e7eb',
+              borderLeftColor: customBorderColor || '#f97316',
               borderWidth: 1,
               borderLeftWidth: 4,
               color: '#111111',
@@ -43,8 +44,8 @@ export const TextNodeView: React.FC<Props> = ({ node, isSelected, isInteractive 
             }
           : {
               backgroundColor: 'rgba(15, 23, 42, 0.9)',
-              borderColor: '#6366f1',
-              borderLeftColor: '#38bdf8',
+              borderColor: customBorderColor || '#6366f1',
+              borderLeftColor: customBorderColor || '#38bdf8',
               borderWidth: 1,
               borderLeftWidth: 4,
               color: node.style.color || '#e2e8f0',

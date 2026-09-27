@@ -24,6 +24,7 @@ export const StringNodeView: React.FC<Props> = ({
   const { themeColor, separatorColor: darkSeparatorColor } = useTheme();
   const isLight = useIsLightTheme();
   const separatorColor = isLight ? LIGHT_ACCENT : darkSeparatorColor;
+  const borderColor = (node.style as any)?.borderColor || separatorColor;
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [paletteCharId, setPaletteCharId] = useState<string | null>(null);
   const [draggedCharId, setDraggedCharId] = useState<string | null>(null);
@@ -188,9 +189,9 @@ export const StringNodeView: React.FC<Props> = ({
         isSelected ? 'ring-2 ring-white/90 shadow-2xl' : ''
       }`}
       style={{
-        border: `2px solid ${separatorColor}`,
+        border: `2px solid ${borderColor}`,
         borderRadius: 2,
-        backgroundColor: isLight ? '#ffffff' : separatorColor,
+        backgroundColor: isLight ? '#ffffff' : borderColor,
       }}
       // Allow Canvas drag when clicking on non-element areas
     >
@@ -263,7 +264,7 @@ export const StringNodeView: React.FC<Props> = ({
                   backgroundColor: bgColor,
                   color: textColor,
                   fontSize: '24px',
-                  border: `2px solid ${isLight ? LIGHT_ACCENT : '#000000'}`,
+                  border: `2px solid ${(node.style as any)?.borderColor || (isLight ? LIGHT_ACCENT : '#000000')}`,
                   borderRadius: '2px',
                   transform: transformStyle || undefined,
                   boxShadow: isSwappingChar ? '0 10px 20px rgba(0,0,0,0.45)' : undefined,

@@ -1,0 +1,22 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Every /api/* request goes to the Express app running as a Netlify Function.
+# (netlify/functions/api.ts normalizes whatever path shape Netlify hands it
+# back to "/api/..." before handing it to Express, so the exact rewrite
+# target here doesn't have to be pixel-perfect.)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# Everything else falls back to the SPA shell so a direct link/reload works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
