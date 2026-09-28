@@ -23,7 +23,23 @@ export const handler: Handler = async (event, context) => {
       throw err;
     });
   }
-  await dbReady;
+
+  try {
+    await dbReady;
+  } catch (err: any) {
+    // Left uncaught, this throws out of the exported handler entirely --
+    // Netlify then returns its own opaque error page instead of JSON, which
+    // makes the frontend's res.json() parse fail and fall back to a generic
+    // "An error occurred with the server." with no indication of why. Return
+    // a real JSON body instead, so the actual cause (e.g. a missing env var)
+    // reaches both the browser and the function logs.
+    console.error('[Netlify Function] Database not available:', err);
+    return {
+      statusCode: 503,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: err?.message || 'Database unavailable. Check the function logs.' }),
+    };
+  }
 
   // Depending on the exact redirect rewrite, Netlify may hand this function
   // either "/.netlify/functions/api/auth/login" or just "/auth/login" as
