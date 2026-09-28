@@ -14,16 +14,55 @@ import {
   HighlightVisualNode,
   StackVisualNode,
   RangeVisualNode,
+  HashMapVisualNode,
+  TreeVisualNode,
+  TreeNodeData,
+  ListNodeVisualNode,
 } from '../types/simulation';
 import { deepClone } from '../utils/deepClone';
 import { generateId } from '../utils/idGenerator';
 import { lastCanvasMouse } from '../utils/cursorTracker';
+import { computeTreeLayout } from '../utils/canvasGeometry';
 import { api } from '../persistence/api';
 import { localRecovery } from '../persistence/localRecovery';
 import { computeStepDiff } from '../animation/diffEngine';
 import { StepDiffPlan } from '../types/diff';
 
 export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'offline';
+
+// Walks a linked-list chain forward via `next` starting at `startId`. Stops
+// at the end (next unset) or as soon as it revisits an id (circular list) --
+// `cycleBackTo` is that repeated id (the head, for a normal circular list)
+// so callers can tell a closed loop from a plain dead end without walking
+// twice.
+function getListChain(
+  objects: VisualNode[],
+  startId: string
+): { chain: ListNodeVisualNode[]; cycleBackTo: string | null } {
+  const byId = new Map<string, ListNodeVisualNode>();
+  objects.forEach((o) => {
+    if (o.type === 'listnode') byId.set(o.id, o as ListNodeVisualNode);
+  });
+
+  const chain: ListNodeVisualNode[] = [];
+  const seen = new Set<string>();
+  let currentId: string | null | undefined = startId;
+  let cycleBackTo: string | null = null;
+
+  while (currentId) {
+    if (seen.has(currentId)) {
+      cycleBackTo = currentId;
+      break;
+    }
+    const n = byId.get(currentId);
+    if (!n) break;
+    seen.add(currentId);
+    chain.push(n);
+    currentId = n.data.next;
+  }
+
+  return { chain, cycleBackTo };
+}
 
 interface SimulationState {
   simulation: SimulationData | null;
@@ -99,6 +138,14 @@ interface SimulationState {
   moveSelectedObjectsBy: (dx: number, dy: number) => void;
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
+
+  // Actions: Linked List chain transforms -- operate on the whole chain
+  // reachable from `nodeId` via `next`, not just that one node.
+  addListNodeAfter: (nodeId: string) => void;
+  convertListToDoubly: (nodeId: string) => void;
+  convertListToCircular: (nodeId: string) => void;
+  convertListToSingly: (nodeId: string) => void;
+  deleteListNodeAndRelink: (nodeId: string) => void;
 
   // Actions: Canvas & Playback
   setZoom: (zoom: number) => void;
@@ -556,23 +603,25 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     // Calculate position - use custom position if provided, otherwise use default
     let posX = customPos ? customPos.x : 300 + (Math.random() * 40 - 20);
     let posY = customPos ? customPos.y : 220 + (Math.random() * 40 - 20);
-    
-    // If no custom position and there are previous steps, try to position near existing objects
-    if (!customPos && currentStepIndex > 0) {
-      const previousStep = simulation.steps[currentStepIndex - 1];
-      if (previousStep && previousStep.objects.length > 0) {
-        // Find objects of the same type in previous step
-        const sameTypeObjects = previousStep.objects.filter(obj => obj.type === type);
-        if (sameTypeObjects.length > 0) {
-          // Position near the last object of the same type
-          const lastSameType = sameTypeObjects[sameTypeObjects.length - 1];
-          posX = lastSameType.x + 50; // Offset to the right
-          posY = lastSameType.y + 50; // Offset down
-        } else {
-          // Position near the last object of any type
+
+    if (!customPos) {
+      // Whatever you just added -- of any type -- is what you're looking at,
+      // so the next node from the toolbar should land near THAT, not near
+      // wherever the last node of its own type happened to be (or a fixed
+      // default spot if this type has never been placed in this step yet).
+      const currentStep = simulation.steps[currentStepIndex];
+      if (currentStep && currentStep.objects.length > 0) {
+        const lastObject = currentStep.objects[currentStep.objects.length - 1];
+        posX = lastObject.x + 40;
+        posY = lastObject.y + 40;
+      } else if (currentStepIndex > 0) {
+        // Current step is empty (e.g. you just created a fresh step) -- fall
+        // back to where things were in the previous step.
+        const previousStep = simulation.steps[currentStepIndex - 1];
+        if (previousStep && previousStep.objects.length > 0) {
           const lastObject = previousStep.objects[previousStep.objects.length - 1];
-          posX = lastObject.x + 50;
-          posY = lastObject.y + 50;
+          posX = lastObject.x + 40;
+          posY = lastObject.y + 40;
         }
       }
     }
@@ -836,6 +885,92 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           },
         };
         newNode = stackNode;
+        break;
+      }
+
+      case 'hashmap': {
+        const hashMapNode: HashMapVisualNode = {
+          id,
+          type: 'hashmap',
+          x: posX,
+          y: posY,
+          width: 200,
+          height: 150,
+          zIndex: 6,
+          style: {
+            backgroundColor: '#0f172a',
+            borderColor: '#14b8a6',
+            borderWidth: 2,
+            borderRadius: 14,
+          },
+          data: {
+            name: 'map',
+            entries: [
+              { id: `hm_${id}_0`, key: 'a', value: 1, highlight: 'none' },
+              { id: `hm_${id}_1`, key: 'b', value: 2, highlight: 'none' },
+            ],
+          },
+        };
+        newNode = hashMapNode;
+        break;
+      }
+
+      case 'tree': {
+        const rootId = `tn_${id}_0`;
+        const defaultRoot: TreeNodeData = {
+          id: rootId,
+          value: 10,
+          highlight: 'none',
+          left: { id: `tn_${id}_1`, value: 5, highlight: 'none' },
+          right: { id: `tn_${id}_2`, value: 15, highlight: 'none' },
+        };
+        const defaultLayout = computeTreeLayout(defaultRoot, 80, 70);
+        const treeNode: TreeVisualNode = {
+          id,
+          type: 'tree',
+          x: posX,
+          y: posY,
+          width: defaultLayout.width,
+          height: defaultLayout.height,
+          zIndex: 6,
+          style: {
+            borderColor: '#8b5cf6',
+            borderWidth: 2,
+            borderRadius: 0,
+          },
+          data: {
+            name: 'root',
+            root: defaultRoot,
+            horizontalSpacing: 80,
+            verticalSpacing: 70,
+          },
+        };
+        newNode = treeNode;
+        break;
+      }
+
+      case 'listnode': {
+        const listNode: ListNodeVisualNode = {
+          id,
+          type: 'listnode',
+          x: posX,
+          y: posY,
+          width: 90,
+          height: 50,
+          zIndex: 6,
+          style: {
+            borderColor: '#22d3ee',
+            borderWidth: 2,
+            borderRadius: 8,
+          },
+          data: {
+            value: 0,
+            next: null,
+            prev: null,
+            highlight: 'none',
+          },
+        };
+        newNode = listNode;
         break;
       }
 
@@ -1200,6 +1335,173 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     const { simulation, currentStepIndex } = get();
     if (!simulation) return;
     get().updateObject(id, { zIndex: 1 } as any);
+  },
+
+  addListNodeAfter: (nodeId) => {
+    const { simulation, currentStepIndex } = get();
+    if (!simulation) return;
+    const currentStep = simulation.steps[currentStepIndex];
+    const current = currentStep.objects.find((o) => o.id === nodeId) as ListNodeVisualNode | undefined;
+    if (!current || current.type !== 'listnode') return;
+
+    get().saveToHistory();
+
+    const isDoubly = currentStep.objects.some((o) => o.type === 'listnode' && !!(o as ListNodeVisualNode).data.prev);
+    const oldNextId = current.data.next || null;
+    const newId = generateId('listnode');
+
+    const newNode: ListNodeVisualNode = {
+      id: newId,
+      type: 'listnode',
+      x: current.x + current.width + 60,
+      y: current.y,
+      width: current.width,
+      height: current.height,
+      zIndex: current.zIndex,
+      style: { ...current.style },
+      data: {
+        value: 0,
+        next: oldNextId,
+        prev: isDoubly ? nodeId : null,
+        highlight: 'none',
+      },
+    };
+
+    const nextObjects: VisualNode[] = currentStep.objects.map((o): VisualNode => {
+      if (o.id === nodeId && o.type === 'listnode') {
+        return { ...o, data: { ...o.data, next: newId } };
+      }
+      // If the old next node pointed back at `current` (doubly linked),
+      // re-point it at the newly inserted node instead.
+      if (oldNextId && o.id === oldNextId && o.type === 'listnode' && o.data.prev === nodeId) {
+        return { ...o, data: { ...o.data, prev: newId } };
+      }
+      return o;
+    });
+    nextObjects.push(newNode);
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: nextObjects };
+    set({ simulation: { ...simulation, steps: newSteps }, selectedObjectId: newId, selectedObjectIds: [] });
+    get().triggerAutosave();
+  },
+
+  convertListToDoubly: (nodeId) => {
+    const { simulation, currentStepIndex } = get();
+    if (!simulation) return;
+    const currentStep = simulation.steps[currentStepIndex];
+    const { chain, cycleBackTo } = getListChain(currentStep.objects, nodeId);
+    if (chain.length === 0) return;
+
+    get().saveToHistory();
+
+    const prevFor = new Map<string, string | null>();
+    for (let i = 1; i < chain.length; i++) {
+      prevFor.set(chain[i].id, chain[i - 1].id);
+    }
+    if (cycleBackTo && cycleBackTo === chain[0].id && chain.length > 1) {
+      prevFor.set(chain[0].id, chain[chain.length - 1].id);
+    }
+
+    const nextObjects = currentStep.objects.map((o) =>
+      o.type === 'listnode' && prevFor.has(o.id)
+        ? { ...o, data: { ...(o as ListNodeVisualNode).data, prev: prevFor.get(o.id) } }
+        : o
+    );
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: nextObjects };
+    set({ simulation: { ...simulation, steps: newSteps } });
+    get().triggerAutosave();
+  },
+
+  convertListToCircular: (nodeId) => {
+    const { simulation, currentStepIndex } = get();
+    if (!simulation) return;
+    const currentStep = simulation.steps[currentStepIndex];
+    const { chain, cycleBackTo } = getListChain(currentStep.objects, nodeId);
+    if (chain.length === 0 || cycleBackTo) return; // already a loop -- nothing to close
+
+    get().saveToHistory();
+
+    const tail = chain[chain.length - 1];
+    const head = chain[0];
+    const nextObjects: VisualNode[] = currentStep.objects.map((o): VisualNode =>
+      o.id === tail.id && o.type === 'listnode' ? { ...o, data: { ...o.data, next: head.id } } : o
+    );
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: nextObjects };
+    set({ simulation: { ...simulation, steps: newSteps } });
+    get().triggerAutosave();
+  },
+
+  convertListToSingly: (nodeId) => {
+    const { simulation, currentStepIndex } = get();
+    if (!simulation) return;
+    const currentStep = simulation.steps[currentStepIndex];
+    const { chain, cycleBackTo } = getListChain(currentStep.objects, nodeId);
+    if (chain.length === 0) return;
+
+    get().saveToHistory();
+
+    const chainIds = new Set(chain.map((n) => n.id));
+    const tailId = chain[chain.length - 1].id;
+
+    const nextObjects = currentStep.objects.map((o) => {
+      if (o.type === 'listnode' && chainIds.has(o.id)) {
+        const data = { ...(o as ListNodeVisualNode).data, prev: null as string | null };
+        if (o.id === tailId && cycleBackTo) {
+          data.next = null; // break the circular link
+        }
+        return { ...o, data };
+      }
+      return o;
+    });
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: nextObjects };
+    set({ simulation: { ...simulation, steps: newSteps } });
+    get().triggerAutosave();
+  },
+
+  deleteListNodeAndRelink: (nodeId) => {
+    const { simulation, currentStepIndex } = get();
+    if (!simulation) return;
+    const currentStep = simulation.steps[currentStepIndex];
+    const target = currentStep.objects.find((o) => o.id === nodeId) as ListNodeVisualNode | undefined;
+    if (!target || target.type !== 'listnode') return;
+
+    get().saveToHistory();
+
+    const prevId = target.data.prev || null;
+    const nextId = target.data.next || null;
+
+    const nextObjects = currentStep.objects
+      .filter((o) => o.id !== nodeId)
+      .map((o) => {
+        if (o.type !== 'listnode') return o;
+        const data = { ...(o as ListNodeVisualNode).data };
+        let changed = false;
+        if (data.next === nodeId) {
+          data.next = nextId;
+          changed = true;
+        }
+        if (data.prev === nodeId) {
+          data.prev = prevId;
+          changed = true;
+        }
+        return changed ? { ...o, data } : o;
+      });
+
+    const newSteps = [...simulation.steps];
+    newSteps[currentStepIndex] = { ...currentStep, objects: nextObjects };
+    set({
+      simulation: { ...simulation, steps: newSteps },
+      selectedObjectId: null,
+      selectedObjectIds: [],
+    });
+    get().triggerAutosave();
   },
 
   // ==========================================

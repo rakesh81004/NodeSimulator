@@ -7,7 +7,31 @@ export type DbRow = RowDataPacket;
 
 let pool: Pool | null = null;
 
+// Netlify Functions run in AWS Lambda; either env var reliably indicates
+// we're NOT on a developer's machine, where falling back to 127.0.0.1 (a
+// database that obviously doesn't exist in that sandbox) would otherwise
+// silently produce "connect ECONNREFUSED 127.0.0.1:4000" instead of a
+// message that actually explains what's missing.
+function isServerlessEnv() {
+  return Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
+function assertRequiredEnv() {
+  if (!isServerlessEnv()) return;
+  const required = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'JWT_SECRET'];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variable(s) on Netlify: ${missing.join(', ')}. ` +
+      'Set them in Netlify (Site configuration -> Environment variables) and redeploy -- ' +
+      'refusing to fall back to localhost defaults in production.'
+    );
+  }
+}
+
 function mysqlConfig() {
+  assertRequiredEnv();
+
   return {
     host: process.env.MYSQL_HOST || '127.0.0.1',
     port: Number(process.env.MYSQL_PORT || 3306),
@@ -105,6 +129,20 @@ export async function initDatabase() {
     namedPlaceholders: false,
   });
 
+  // If anything below fails (e.g. the host is unreachable), don't leave a
+  // broken pool cached on the module -- a warm serverless invocation would
+  // otherwise see `pool` already set and skip straight past initDatabase()'s
+  // `if (pool) return`, silently treating a dead connection as "ready" and
+  // only failing later, confusingly, inside an actual request handler.
+  try {
+    await runSchemaSetup();
+  } catch (err) {
+    pool = null;
+    throw err;
+  }
+}
+
+async function runSchemaSetup() {
   await execute(`
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(64) PRIMARY KEY,

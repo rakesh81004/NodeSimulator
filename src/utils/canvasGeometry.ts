@@ -1,7 +1,219 @@
-import { VisualNode, ArrayVisualNode, StringVisualNode, PointerVisualNode, RangeVisualNode } from '../types/simulation';
+import { VisualNode, ArrayVisualNode, StringVisualNode, PointerVisualNode, RangeVisualNode, TreeNodeData } from '../types/simulation';
+
+export const TREE_NODE_DIAMETER = 44;
+
+// Point on a rectangle's boundary (centered at cx,cy with the given half
+// extents) where a ray from its center toward (towardX, towardY) exits --
+// the standard "clip a line to a box" trick, used so a linked-list arrow
+// stops flush at each node's edge instead of running into its middle.
+function clipLineToRect(cx: number, cy: number, halfW: number, halfH: number, towardX: number, towardY: number) {
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const scaleX = dx !== 0 ? halfW / Math.abs(dx) : Infinity;
+  const scaleY = dy !== 0 ? halfH / Math.abs(dy) : Infinity;
+  const scale = Math.min(scaleX, scaleY, 1);
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+export interface ListLinkSegment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  kind: 'next' | 'prev';
+  color: string;
+}
+
+export interface ListLinkRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+// Recomputed fresh every render from each list node's LIVE position, so
+// dragging any individual node -- moving it anywhere relative to its
+// next/prev neighbors -- keeps every arrow attached and correctly routed,
+// with no manual re-wiring. `next` and `prev` arrows between the same pair
+// of nodes are offset to opposite sides of the direct line so a doubly
+// linked list shows two parallel lines instead of one line drawn twice.
+export function computeListLinks(
+  nodes: { id: string; next?: string | null; prev?: string | null; lineColor?: string }[],
+  getRect: (id: string) => ListLinkRect | undefined
+): ListLinkSegment[] {
+  const OFFSET = 5;
+  const segments: ListLinkSegment[] = [];
+
+  const addSegment = (fromId: string, toId: string, kind: 'next' | 'prev', color: string) => {
+    const a = getRect(fromId);
+    const b = getRect(toId);
+    if (!a || !b) return;
+    const acx = a.x + a.width / 2;
+    const acy = a.y + a.height / 2;
+    const bcx = b.x + b.width / 2;
+    const bcy = b.y + b.height / 2;
+
+    const dx = bcx - acx;
+    const dy = bcy - acy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const px = -dy / dist;
+    const py = dx / dist;
+    const sign = kind === 'next' ? 1 : -1;
+    const ox = px * OFFSET * sign;
+    const oy = py * OFFSET * sign;
+
+    const start = clipLineToRect(acx + ox, acy + oy, a.width / 2, a.height / 2, bcx + ox, bcy + oy);
+    const end = clipLineToRect(bcx + ox, bcy + oy, b.width / 2, b.height / 2, acx + ox, acy + oy);
+    segments.push({ x1: start.x, y1: start.y, x2: end.x, y2: end.y, kind, color });
+  };
+
+  for (const n of nodes) {
+    if (n.next) addSegment(n.id, n.next, 'next', n.lineColor || '#22d3ee');
+    if (n.prev) addSegment(n.id, n.prev, 'prev', n.lineColor || '#f59e0b');
+  }
+
+  return segments;
+}
+
+export interface TreeLayoutPosition {
+  node: TreeNodeData;
+  x: number;
+  y: number;
+}
+
+export interface TreeLayoutEdge {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface TreeLayoutResult {
+  positions: TreeLayoutPosition[];
+  edges: TreeLayoutEdge[];
+  width: number;
+  height: number;
+}
+
+// Shared by TreeNodeView (to actually draw the tree) and the Properties
+// panel (to keep the node's stored width/height in sync whenever the tree
+// structure is edited) -- one source of truth for where every node/edge
+// lands, so the two never drift apart. Classic recursive binary-tree layout:
+// each child gets half its parent's horizontal spread, so subtrees never
+// overlap regardless of depth.
+export function computeTreeLayout(
+  root: TreeNodeData | null | undefined,
+  horizontalSpacing: number = 80,
+  verticalSpacing: number = 70
+): TreeLayoutResult {
+  const PADDING = TREE_NODE_DIAMETER / 2 + 10;
+
+  if (!root) {
+    const empty = TREE_NODE_DIAMETER + PADDING * 2;
+    return { positions: [], edges: [], width: empty, height: empty };
+  }
+
+  const raw: { node: TreeNodeData; x: number; y: number }[] = [];
+  const rawEdges: TreeLayoutEdge[] = [];
+
+  const walk = (node: TreeNodeData, depth: number, x: number) => {
+    const y = depth * verticalSpacing;
+    raw.push({ node, x, y });
+    const childSpacing = Math.max(24, horizontalSpacing / Math.pow(2, depth));
+    if (node.left) {
+      rawEdges.push({ x1: x, y1: y, x2: x - childSpacing, y2: y + verticalSpacing });
+      walk(node.left, depth + 1, x - childSpacing);
+    }
+    if (node.right) {
+      rawEdges.push({ x1: x, y1: y, x2: x + childSpacing, y2: y + verticalSpacing });
+      walk(node.right, depth + 1, x + childSpacing);
+    }
+  };
+  walk(root, 0, 0);
+
+  const minX = Math.min(...raw.map((p) => p.x));
+  const maxX = Math.max(...raw.map((p) => p.x));
+  const maxY = Math.max(...raw.map((p) => p.y));
+  const offsetX = -minX + PADDING;
+
+  const positions: TreeLayoutPosition[] = raw.map((p) => ({ node: p.node, x: p.x + offsetX, y: p.y + PADDING }));
+  const edges: TreeLayoutEdge[] = rawEdges.map((e) => ({
+    x1: e.x1 + offsetX,
+    y1: e.y1 + PADDING,
+    x2: e.x2 + offsetX,
+    y2: e.y2 + PADDING,
+  }));
+
+  return {
+    positions,
+    edges,
+    width: maxX - minX + PADDING * 2,
+    height: maxY + PADDING * 2,
+  };
+}
 
 export function snapToGrid(value: number, gridSize: number = 20): number {
   return Math.round(value / gridSize) * gridSize;
+}
+
+export interface SmartSnapResult {
+  x: number | null;
+  y: number | null;
+  guideX: number | null;
+  guideY: number | null;
+}
+
+// Figma-style smart alignment: while dragging a node, check its left/center/
+// right edges against every other node's left/center/right edges (and same
+// for top/center/bottom), and snap to whichever single edge pair is closest,
+// as long as it's within `threshold` canvas-space units. Independent per
+// axis, so you can align horizontally with one node and vertically with a
+// completely different one in the same drag.
+export function computeSmartSnap(
+  dragged: { x: number; y: number; width: number; height: number },
+  others: { x: number; y: number; width: number; height: number }[],
+  threshold: number
+): SmartSnapResult {
+  let bestXDiff = threshold;
+  let snapX: number | null = null;
+  let guideX: number | null = null;
+
+  let bestYDiff = threshold;
+  let snapY: number | null = null;
+  let guideY: number | null = null;
+
+  const draggedEdgesX = [dragged.x, dragged.x + dragged.width / 2, dragged.x + dragged.width];
+  const draggedEdgesY = [dragged.y, dragged.y + dragged.height / 2, dragged.y + dragged.height];
+
+  for (const other of others) {
+    const otherEdgesX = [other.x, other.x + other.width / 2, other.x + other.width];
+    const otherEdgesY = [other.y, other.y + other.height / 2, other.y + other.height];
+
+    for (const dEdge of draggedEdgesX) {
+      for (const oEdge of otherEdgesX) {
+        const diff = Math.abs(dEdge - oEdge);
+        if (diff < bestXDiff) {
+          bestXDiff = diff;
+          snapX = dragged.x + (oEdge - dEdge);
+          guideX = oEdge;
+        }
+      }
+    }
+
+    for (const dEdge of draggedEdgesY) {
+      for (const oEdge of otherEdgesY) {
+        const diff = Math.abs(dEdge - oEdge);
+        if (diff < bestYDiff) {
+          bestYDiff = diff;
+          snapY = dragged.y + (oEdge - dEdge);
+          guideY = oEdge;
+        }
+      }
+    }
+  }
+
+  return { x: snapX, y: snapY, guideX, guideY };
 }
 
 // ArrayNodeView/StringNodeView render an index-number row above each cell when

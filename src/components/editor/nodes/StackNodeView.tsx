@@ -98,8 +98,11 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
 
   const primaryColor = (node.style as any)?.backgroundColor || themeColor;
 
-  // Helper function to darken a color
+  // Helper function to darken a color -- not every "color" here is a real hex
+  // value (e.g. 'transparent'), so leave anything that doesn't parse as one
+  // untouched instead of silently computing garbage from NaN.
   const adjustColor = (color: string, amount: number) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return color;
     const hex = color.replace('#', '');
     const num = parseInt(hex, 16);
     const r = Math.max(0, Math.min(255, (num >> 16) + amount));
@@ -209,15 +212,22 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
           elements.map((el, idx) => {
             const isTop = idx === elements.length - 1;
             const customColor = (el as any).color as string | undefined;
-            const bgColor = customColor || (isTop ? adjustColor(primaryColor, 30) : primaryColor);
+            // Matches ArrayNodeView's theme: an untouched element is a solid
+            // theme-colored block in dark mode, or plain black-on-white
+            // (worksheet style) in light mode; a custom-colored element keeps
+            // its own color with white text in either theme.
+            const isPlainEl = isLight && !customColor;
+            const bgColor = customColor || (isLight ? '#ffffff' : (isTop ? adjustColor(primaryColor, 30) : primaryColor));
+            const elTextColor = isPlainEl ? '#000000' : '#ffffff';
 
             return (
               <div
                 key={el.id}
                 onDoubleClick={() => isInteractive && setEditingElId(el.id)}
-                className="relative group w-full py-2.5 font-sans font-bold text-lg text-center text-white flex items-center justify-center rounded-xl shadow-md"
+                className="relative group w-full py-2.5 font-sans font-bold text-lg text-center flex items-center justify-center rounded-xl shadow-md"
                 style={{
                   backgroundColor: bgColor,
+                  color: elTextColor,
                 }}
               >
                 {editingElId === el.id ? (
@@ -225,7 +235,8 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
                     type="text"
                     autoFocus
                     onFocus={(e) => e.target.select()}
-                    className="w-14 bg-black/30 text-white font-bold text-center outline-none rounded"
+                    className={`w-14 font-sans font-bold text-center outline-none rounded ${isPlainEl ? 'bg-black/10' : 'bg-black/30'}`}
+                    style={{ color: elTextColor }}
                     value={formatDisplayValue(el.value)}
                     onChange={(e) => handleElementChange(el.id, e.target.value)}
                     onBlur={() => setEditingElId(null)}
@@ -270,9 +281,9 @@ export const StackNodeView: React.FC<Props> = ({ node, isSelected, isInteractive
         )}
       </div>
 
-      {/* Stack Name - Below container, centered */}
+      {/* Stack Name - Below container, centered, colored to match the chosen outline color */}
       <div className="flex items-center justify-center pt-2 pb-1">
-        <span className={`font-sans font-bold text-xs tracking-wide ${isLight ? 'text-purple-700' : 'text-purple-300'}`}>
+        <span className="font-sans font-bold text-xs tracking-wide" style={{ color: primaryColor }}>
           {name}
         </span>
       </div>

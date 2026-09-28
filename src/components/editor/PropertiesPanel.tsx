@@ -12,7 +12,14 @@ import {
   RangeVisualNode,
   HighlightVisualNode,
   ArrayElement,
+  HashMapVisualNode,
+  HashMapEntry,
+  TreeVisualNode,
+  TreeNodeData,
+  ListNodeVisualNode,
+  VisualNode,
 } from '../../types/simulation';
+import { computeTreeLayout } from '../../utils/canvasGeometry';
 import {
   Trash2,
   Copy,
@@ -37,6 +44,67 @@ interface Props {
   onCloseMobile?: () => void;
 }
 
+// Builds a binary tree from LeetCode-style level-order notation (BFS, "null"
+// for a missing child, children of a null are never listed) -- the format
+// most DSA learners already know from problem statements, so typing a tree
+// by hand doesn't mean writing nested JSON.
+function buildTreeFromLevelOrder(tokens: (string | number | null)[], idPrefix: string): TreeNodeData | null {
+  if (tokens.length === 0 || tokens[0] === null || tokens[0] === undefined) return null;
+  let idx = 1;
+  const makeNode = (v: string | number): TreeNodeData => ({
+    id: `${idPrefix}_${Math.random().toString(36).slice(2, 8)}`,
+    value: v,
+    highlight: 'none',
+  });
+  const root = makeNode(tokens[0]);
+  const queue: TreeNodeData[] = [root];
+  while (queue.length > 0 && idx < tokens.length) {
+    const current = queue.shift()!;
+    if (idx < tokens.length) {
+      const leftVal = tokens[idx++];
+      if (leftVal !== null && leftVal !== undefined) {
+        const leftNode = makeNode(leftVal);
+        current.left = leftNode;
+        queue.push(leftNode);
+      }
+    }
+    if (idx < tokens.length) {
+      const rightVal = tokens[idx++];
+      if (rightVal !== null && rightVal !== undefined) {
+        const rightNode = makeNode(rightVal);
+        current.right = rightNode;
+        queue.push(rightNode);
+      }
+    }
+  }
+  return root;
+}
+
+// The exact inverse of buildTreeFromLevelOrder -- same BFS order, so editing
+// the text, saving, and reopening always round-trips to the same string.
+function flattenTreeToLevelOrder(root: TreeNodeData | null): string {
+  if (!root) return '';
+  const tokens: string[] = [String(root.value)];
+  const queue: TreeNodeData[] = [root];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.left) {
+      tokens.push(String(current.left.value));
+      queue.push(current.left);
+    } else {
+      tokens.push('null');
+    }
+    if (current.right) {
+      tokens.push(String(current.right.value));
+      queue.push(current.right);
+    } else {
+      tokens.push('null');
+    }
+  }
+  while (tokens.length > 0 && tokens[tokens.length - 1] === 'null') tokens.pop();
+  return tokens.join(', ');
+}
+
 export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
   const {
     simulation,
@@ -53,6 +121,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     bringToFront,
     sendToBack,
     regenerateSteps,
+    addListNodeAfter,
+    convertListToDoubly,
+    convertListToCircular,
+    convertListToSingly,
+    deleteListNodeAndRelink,
   } = useSimulationStore();
   const { themeColor } = useTheme();
   const isLight = simulation?.settings?.theme === 'light';
@@ -134,14 +207,35 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
     { label: 'Purple', color: '#8b5cf6', highlight: 'window' },
     { label: 'Red', color: '#f43f5e', highlight: 'mismatch' },
     { label: 'Orange', color: '#ff9800', highlight: 'swapping' },
+    { label: 'Black', color: '#000000', highlight: 'none' },
+    { label: 'Transparent', color: 'transparent', highlight: 'none' },
   ];
 
-  // White is safe for accents/outlines (pointers, ranges, stack border) drawn on the
-  // dark canvas, but omitted from `colorPresets` since those fill a box behind white text.
+  // White is additionally safe for accents/outlines (pointers, ranges, stack
+  // border, every node's Border Color picker) drawn on the dark canvas, but
+  // omitted from the base `colorPresets` fill list since a white fill sits
+  // behind white text.
   const accentColorPresets = [
     ...colorPresets,
     { label: 'White', color: '#ffffff', highlight: 'none' },
   ];
+
+  // A native color-wheel swatch, dropped in alongside the fixed presets on
+  // every color row so any exact color can be pointed-and-picked, not just
+  // the six/seven canned ones.
+  const colorWheel = (onPick: (color: string) => void) => (
+    <label
+      className="relative w-6 h-6 rounded-full border-2 border-dashed border-slate-500 hover:border-white transition-colors cursor-pointer flex items-center justify-center overflow-hidden shrink-0"
+      title="Pick any custom color"
+    >
+      <input
+        type="color"
+        onChange={(e) => onPick(e.target.value)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      />
+      <Palette className="w-3 h-3 text-slate-400 pointer-events-none" />
+    </label>
+  );
 
   // Simulations created via Import Code remember which algorithm/code generated them,
   // so editing the input here can re-run that same logic instead of just editing text.
@@ -320,7 +414,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Color Preset Palette */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Color Theme</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {colorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -335,13 +429,18 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, backgroundColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
               {/* Border Color -- independent of the fill, same idea as Rectangle's Fill/Border split */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -356,6 +455,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
             </div>
@@ -427,7 +531,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Color Preset Palette */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Color Theme</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {colorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -442,13 +546,18 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, backgroundColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
               {/* Border Color -- independent of the fill */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -463,6 +572,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
             </div>
@@ -527,7 +641,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Apply Color Theme across Array */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Set Entire Array Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {colorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -547,13 +661,23 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) => {
+                    const nextEls = (selectedNode as ArrayVisualNode).data.elements.map((el) => ({
+                      ...el,
+                      color,
+                      highlight: 'none' as any,
+                    }));
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as ArrayVisualNode).data, elements: nextEls },
+                    } as any);
+                  })}
                 </div>
               </div>
 
               {/* Border Color -- the divider/outline color, independent of per-cell fill */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -568,6 +692,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
@@ -621,7 +750,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               </div>
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Set Entire String Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {colorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -641,13 +770,23 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) => {
+                    const nextChars = (selectedNode as StringVisualNode).data.characters.map((ch) => ({
+                      ...ch,
+                      color,
+                      highlight: 'none' as any,
+                    }));
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as StringVisualNode).data, characters: nextChars },
+                    } as any);
+                  })}
                 </div>
               </div>
 
               {/* Border Color -- the divider/outline color, independent of per-cell fill */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -662,6 +801,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
@@ -784,7 +928,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Apply Color Theme across Stack */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Set Stack Outline Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -799,13 +943,18 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, backgroundColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
               {/* Per-Element Color */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Set Entire Stack Elements Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {colorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -825,6 +974,16 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) => {
+                    const nextEls = (selectedNode as StackVisualNode).data.elements.map((el) => ({
+                      ...el,
+                      color,
+                      highlight: 'none' as any,
+                    }));
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as StackVisualNode).data, elements: nextEls },
+                    } as any);
+                  })}
                 </div>
               </div>
             </div>
@@ -887,7 +1046,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Pointer Color */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Pointer Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -902,6 +1061,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as PointerVisualNode).data, color },
+                    } as any)
+                  )}
                 </div>
               </div>
 
@@ -1137,7 +1301,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Color Presets */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Color Accent</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -1152,10 +1316,422 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as RangeVisualNode).data, color },
+                    } as any)
+                  )}
                 </div>
               </div>
             </div>
           )}
+
+          {selectedNode.type === 'hashmap' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-teal-400">HashMap & Theme</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Name (Optional)</label>
+                <input
+                  type="text"
+                  value={(selectedNode as HashMapVisualNode).data.name || ''}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as HashMapVisualNode).data, name: e.target.value },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-teal-400 outline-none font-mono"
+                  placeholder="e.g. map, seen, freq"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 flex items-center justify-between mb-1">
+                  <span>Entries (key:value, key:value, ...)</span>
+                  <Edit3 className="w-3 h-3 text-teal-400" />
+                </label>
+                <textarea
+                  rows={3}
+                  value={(selectedNode as HashMapVisualNode).data.entries
+                    .map((en) => `${String(en.key).replace(/^['"]|['"]$/g, '')}:${String(en.value).replace(/^['"]|['"]$/g, '')}`)
+                    .join(', ')}
+                  onChange={(e) => {
+                    const existing = (selectedNode as HashMapVisualNode).data.entries;
+                    const nextEntries: HashMapEntry[] = e.target.value
+                      .split(',')
+                      .map((tok) => tok.trim())
+                      .filter((tok) => tok.length > 0)
+                      .map((tok, idx) => {
+                        const [rawKey, rawVal] = tok.split(':').map((s) => s.trim());
+                        const toVal = (s: string | undefined) => {
+                          if (s === undefined) return '';
+                          const num = Number(s);
+                          return !isNaN(num) && s !== '' ? num : s;
+                        };
+                        return {
+                          id: existing[idx]?.id || `hm_${selectedNode.id}_${Date.now()}_${idx}`,
+                          key: toVal(rawKey),
+                          value: toVal(rawVal),
+                          highlight: existing[idx]?.highlight || 'none',
+                        };
+                      });
+                    updateObject(selectedNode.id, {
+                      height: Math.max(selectedNode.height, nextEntries.length * 40 + 60),
+                      data: { ...(selectedNode as HashMapVisualNode).data, entries: nextEntries },
+                    } as any);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-teal-400 outline-none font-mono resize-none leading-relaxed"
+                  placeholder="e.g. a:1, b:2, c:3"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.type === 'tree' && (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold text-fuchsia-400">Tree & Theme</span>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Name (Optional)</label>
+                <input
+                  type="text"
+                  value={(selectedNode as TreeVisualNode).data.name || ''}
+                  onChange={(e) =>
+                    updateObject(selectedNode.id, {
+                      data: { ...(selectedNode as TreeVisualNode).data, name: e.target.value },
+                    } as any)
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-fuchsia-400 outline-none font-mono"
+                  placeholder="e.g. root"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 flex items-center justify-between mb-1">
+                  <span>Level-Order Values (LeetCode style)</span>
+                  <Edit3 className="w-3 h-3 text-fuchsia-400" />
+                </label>
+                <textarea
+                  rows={2}
+                  value={flattenTreeToLevelOrder((selectedNode as TreeVisualNode).data.root)}
+                  onChange={(e) => {
+                    const tokens = e.target.value
+                      .split(',')
+                      .map((t) => t.trim())
+                      .filter((t) => t.length > 0)
+                      .map((t) => {
+                        if (t.toLowerCase() === 'null') return null;
+                        const num = Number(t);
+                        return !isNaN(num) ? num : t;
+                      });
+                    const nextRoot = buildTreeFromLevelOrder(tokens, selectedNode.id);
+                    const data = (selectedNode as TreeVisualNode).data;
+                    const layout = computeTreeLayout(nextRoot, data.horizontalSpacing, data.verticalSpacing);
+                    updateObject(selectedNode.id, {
+                      width: layout.width,
+                      height: layout.height,
+                      data: { ...data, root: nextRoot },
+                    } as any);
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-fuchsia-400 outline-none font-mono resize-none leading-relaxed"
+                  placeholder="e.g. 10, 5, 15, null, 7, null, 20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">H-Spacing</label>
+                  <input
+                    type="number"
+                    min={30}
+                    value={(selectedNode as TreeVisualNode).data.horizontalSpacing ?? 80}
+                    onChange={(e) => {
+                      const data = (selectedNode as TreeVisualNode).data;
+                      const hSpacing = Math.max(30, Number(e.target.value));
+                      const layout = computeTreeLayout(data.root, hSpacing, data.verticalSpacing);
+                      updateObject(selectedNode.id, {
+                        width: layout.width,
+                        height: layout.height,
+                        data: { ...data, horizontalSpacing: hSpacing },
+                      } as any);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white text-center focus:border-fuchsia-400 outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">V-Spacing</label>
+                  <input
+                    type="number"
+                    min={40}
+                    value={(selectedNode as TreeVisualNode).data.verticalSpacing ?? 70}
+                    onChange={(e) => {
+                      const data = (selectedNode as TreeVisualNode).data;
+                      const vSpacing = Math.max(40, Number(e.target.value));
+                      const layout = computeTreeLayout(data.root, data.horizontalSpacing, vSpacing);
+                      updateObject(selectedNode.id, {
+                        width: layout.width,
+                        height: layout.height,
+                        data: { ...data, verticalSpacing: vSpacing },
+                      } as any);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white text-center focus:border-fuchsia-400 outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Fill Color (default node color)</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {colorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, backgroundColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, backgroundColor: color },
+                    } as any)
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {accentColorPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() =>
+                        updateObject(selectedNode.id, {
+                          style: { ...selectedNode.style, borderColor: p.color },
+                        } as any)
+                      }
+                      className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                      style={{ backgroundColor: p.color }}
+                      title={p.label}
+                    />
+                  ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.type === 'listnode' && (() => {
+            const thisNode = selectedNode as ListNodeVisualNode;
+            const otherListNodes = (currentStep.objects as VisualNode[]).filter(
+              (o): o is ListNodeVisualNode => o.type === 'listnode' && o.id !== selectedNode.id
+            );
+            const labelFor = (n: ListNodeVisualNode) => String(n.data.value).replace(/^['"]|['"]$/g, '') || n.id.slice(-4);
+
+            return (
+              <div className="flex flex-col gap-3">
+                <span className="text-xs font-semibold text-cyan-400">Linked List Node</span>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Value</label>
+                  <input
+                    type="text"
+                    value={String(thisNode.data.value).replace(/^['"]|['"]$/g, '')}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/^['"]|['"]$/g, '');
+                      const num = Number(clean);
+                      const val = !isNaN(num) && clean.trim() !== '' ? num : clean;
+                      updateObject(selectedNode.id, { data: { ...thisNode.data, value: val } } as any);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-cyan-400 outline-none font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Next →</label>
+                  <select
+                    value={thisNode.data.next || ''}
+                    onChange={(e) =>
+                      updateObject(selectedNode.id, { data: { ...thisNode.data, next: e.target.value || null } } as any)
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-cyan-400 outline-none font-mono"
+                  >
+                    <option value="">(None -- end of list)</option>
+                    {otherListNodes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {labelFor(n)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">← Prev (doubly linked only)</label>
+                  <select
+                    value={thisNode.data.prev || ''}
+                    onChange={(e) =>
+                      updateObject(selectedNode.id, { data: { ...thisNode.data, prev: e.target.value || null } } as any)
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-white focus:border-cyan-400 outline-none font-mono"
+                  >
+                    <option value="">(None)</option>
+                    {otherListNodes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {labelFor(n)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Quick Actions</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => addListNodeAfter(selectedNode.id)}
+                      className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] flex items-center justify-center gap-1 font-semibold transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add Next Node
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteListNodeAndRelink(selectedNode.id)}
+                      className="py-1.5 px-2 bg-rose-600/80 hover:bg-rose-600 text-white rounded text-[11px] flex items-center justify-center gap-1 font-semibold transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete & Relink
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Transform Whole Chain (from this node)</label>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => convertListToSingly(selectedNode.id)}
+                      className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition-colors"
+                    >
+                      Make Singly Linked
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => convertListToDoubly(selectedNode.id)}
+                      className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition-colors"
+                    >
+                      Make Doubly Linked
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => convertListToCircular(selectedNode.id)}
+                      className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition-colors"
+                    >
+                      Make Circular (this = head)
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Fill Color</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {colorPresets.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() =>
+                          updateObject(selectedNode.id, { style: { ...selectedNode.style, backgroundColor: p.color } } as any)
+                        }
+                        className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                        style={{ backgroundColor: p.color }}
+                        title={p.label}
+                      />
+                    ))}
+                    {colorWheel((color) =>
+                      updateObject(selectedNode.id, { style: { ...selectedNode.style, backgroundColor: color } } as any)
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {accentColorPresets.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() =>
+                          updateObject(selectedNode.id, { style: { ...selectedNode.style, borderColor: p.color } } as any)
+                        }
+                        className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                        style={{ backgroundColor: p.color }}
+                        title={p.label}
+                      />
+                    ))}
+                    {colorWheel((color) =>
+                      updateObject(selectedNode.id, { style: { ...selectedNode.style, borderColor: color } } as any)
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Connector Line Color (this node's outgoing arrows)</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {accentColorPresets.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() =>
+                          updateObject(selectedNode.id, { data: { ...thisNode.data, lineColor: p.color } } as any)
+                        }
+                        className="w-6 h-6 rounded-full border-2 border-white/60 hover:scale-125 transition-transform"
+                        style={{ backgroundColor: p.color }}
+                        title={p.label}
+                      />
+                    ))}
+                    {colorWheel((color) =>
+                      updateObject(selectedNode.id, { data: { ...thisNode.data, lineColor: color } } as any)
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {selectedNode.type === 'text' && (
             <div className="flex flex-col gap-3">
@@ -1179,7 +1755,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
               {/* Border Color -- independent of the fill */}
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Border Color</label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {accentColorPresets.map((p) => (
                     <button
                       key={p.label}
@@ -1194,6 +1770,11 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                       title={p.label}
                     />
                   ))}
+                  {colorWheel((color) =>
+                    updateObject(selectedNode.id, {
+                      style: { ...selectedNode.style, borderColor: color },
+                    } as any)
+                  )}
                 </div>
               </div>
             </div>
@@ -1279,7 +1860,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   ))}
                   <input
                     type="color"
-                    value={(selectedNode as HighlightVisualNode).data.fillColor || '#64748b'}
+                    value={/^#[0-9a-fA-F]{6}$/.test((selectedNode as HighlightVisualNode).data.fillColor || '') ? (selectedNode as HighlightVisualNode).data.fillColor! : '#64748b'}
                     onChange={(e) =>
                       updateObject(selectedNode.id, {
                         data: { ...(selectedNode as HighlightVisualNode).data, fillColor: e.target.value },
@@ -1331,7 +1912,7 @@ export const PropertiesPanel: React.FC<Props> = ({ onCloseMobile }) => {
                   ))}
                   <input
                     type="color"
-                    value={(selectedNode as HighlightVisualNode).data.color || '#94a3b8'}
+                    value={/^#[0-9a-fA-F]{6}$/.test((selectedNode as HighlightVisualNode).data.color || '') ? (selectedNode as HighlightVisualNode).data.color! : '#94a3b8'}
                     onChange={(e) =>
                       updateObject(selectedNode.id, {
                         data: { ...(selectedNode as HighlightVisualNode).data, color: e.target.value },

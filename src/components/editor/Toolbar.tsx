@@ -17,6 +17,9 @@ import {
   X,
   ScanLine,
   RectangleHorizontal,
+  Hash,
+  GitBranch,
+  Link2,
 } from 'lucide-react';
 import { VisualNodeType } from '../../types/simulation';
 
@@ -52,6 +55,9 @@ export const Toolbar: React.FC = () => {
     { type: 'pointer' as VisualNodeType, label: 'Pointer', icon: Navigation, color: 'text-amber-400 hover:bg-amber-500/10' },
     { type: 'range' as VisualNodeType, label: 'Window Range', icon: ScanLine, color: 'text-violet-400 hover:bg-violet-500/10' },
     { type: 'box' as VisualNodeType, label: 'Rectangle', icon: RectangleHorizontal, color: 'text-slate-300 hover:bg-slate-500/10', drawable: true },
+    { type: 'hashmap' as VisualNodeType, label: 'HashMap', icon: Hash, color: 'text-teal-400 hover:bg-teal-500/10' },
+    { type: 'tree' as VisualNodeType, label: 'Tree', icon: GitBranch, color: 'text-fuchsia-400 hover:bg-fuchsia-500/10' },
+    { type: 'listnode' as VisualNodeType, label: 'Linked List', icon: Link2, color: 'text-cyan-400 hover:bg-cyan-500/10' },
     { type: 'text' as VisualNodeType, label: 'Quote Note', icon: FileText, color: 'text-indigo-400 hover:bg-indigo-500/10' },
   ];
 

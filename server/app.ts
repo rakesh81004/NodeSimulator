@@ -4,6 +4,7 @@ import fs from 'fs';
 import authRoutes from './routes/authRoutes';
 import simulationRoutes from './routes/simulationRoutes';
 import folderRoutes from './routes/folderRoutes';
+import { queryOne } from './db/database';
 
 // The Express app itself, shared between the local dev server (server/index.ts,
 // which also calls app.listen) and the Netlify Function wrapper (which hands
@@ -25,15 +26,27 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'DSA Animator Backend',
-    version: '1.0.0',
-    schemaVersion: 2,
-    database: 'mysql',
-  });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await queryOne('SELECT 1 AS ok');
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      service: 'DSA Animator Backend',
+      version: '1.0.0',
+      schemaVersion: 2,
+      database: 'mysql',
+    });
+  } catch (err: any) {
+    console.error('[Health] Database check failed:', err);
+    res.status(503).json({
+      status: 'error',
+      timestamp: new Date().toISOString(),
+      service: 'DSA Animator Backend',
+      database: 'mysql',
+      error: err?.message || 'Database unreachable',
+    });
+  }
 });
 
 app.use('/api/auth', authRoutes);

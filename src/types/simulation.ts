@@ -9,7 +9,10 @@ export type VisualNodeType =
   | 'highlight'
   | 'box'
   | 'stack'
-  | 'range';
+  | 'range'
+  | 'hashmap'
+  | 'tree'
+  | 'listnode';
 
 export interface BaseNodeStyle {
   backgroundColor?: string;
@@ -164,6 +167,68 @@ export interface StackVisualNode extends BaseVisualNode {
   };
 }
 
+export interface HashMapEntry {
+  id: string;
+  key: string | number;
+  value: string | number;
+  highlight?: 'none' | 'active' | 'found' | 'inserted' | 'removed' | 'updated';
+  color?: string;
+}
+
+// Unordered key -> value table (HashMap/Dictionary), rendered as stacked rows.
+export interface HashMapVisualNode extends BaseVisualNode {
+  type: 'hashmap';
+  data: {
+    name?: string;
+    entries: HashMapEntry[];
+  };
+}
+
+// A single binary tree node -- deliberately recursive so a whole subtree is
+// just plain nested data, no separate node-id bookkeeping required.
+export interface TreeNodeData {
+  id: string;
+  value: string | number;
+  left?: TreeNodeData | null;
+  right?: TreeNodeData | null;
+  highlight?: 'none' | 'active' | 'found' | 'visited';
+  color?: string;
+}
+
+export interface TreeVisualNode extends BaseVisualNode {
+  type: 'tree';
+  data: {
+    name?: string;
+    root: TreeNodeData | null;
+    // Horizontal gap between a node and each child at the ROOT level; halves
+    // every level down so subtrees never overlap. Vertical gap is constant
+    // per level. Both are user-adjustable so a wide/deep tree can be spread
+    // out (or a small one made compact) instead of a fixed layout forever.
+    horizontalSpacing?: number;
+    verticalSpacing?: number;
+  };
+}
+
+// A single linked-list node -- deliberately its OWN top-level canvas object
+// (not bundled inside a parent's data array like Array/Stack) so it can be
+// dragged independently; `next`/`prev` are just other list nodes' ids, and
+// the connecting arrows are recomputed from live positions every render, the
+// same way Pointer nodes already track a target by id instead of a fixed
+// offset. Singly/doubly/circular are just different next/prev wiring on top
+// of the same node shape, not separate types.
+export interface ListNodeVisualNode extends BaseVisualNode {
+  type: 'listnode';
+  data: {
+    value: string | number;
+    next?: string | null;
+    prev?: string | null;
+    label?: string; // optional badge like "head" shown above the node
+    highlight?: 'none' | 'active' | 'found' | 'visited';
+    color?: string;
+    lineColor?: string; // color of this node's outgoing next/prev connector lines
+  };
+}
+
 export type VisualNode =
   | ArrayVisualNode
   | StringVisualNode
@@ -174,7 +239,10 @@ export type VisualNode =
   | ArrowVisualNode
   | HighlightVisualNode
   | StackVisualNode
-  | RangeVisualNode;
+  | RangeVisualNode
+  | HashMapVisualNode
+  | TreeVisualNode
+  | ListNodeVisualNode;
 
 export interface StepModel {
   id: string;

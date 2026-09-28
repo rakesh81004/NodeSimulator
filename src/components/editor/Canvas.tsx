@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useSimulationStore } from '../../store/simulationStore';
 import { VisualNode, PointerVisualNode, StackVisualNode, ArrayVisualNode, StringVisualNode, RangeVisualNode } from '../../types/simulation';
-import { calculatePointerPosition, calculateRangePosition, getArrayCellCenter, snapToGrid } from '../../utils/canvasGeometry';
+import { calculatePointerPosition, calculateRangePosition, getArrayCellCenter, snapToGrid, computeSmartSnap, computeListLinks } from '../../utils/canvasGeometry';
 import { lastCanvasMouse } from '../../utils/cursorTracker';
 import { ArrayNodeView } from './nodes/ArrayNodeView';
 import { StringNodeView } from './nodes/StringNodeView';
@@ -13,6 +13,9 @@ import { ArrowNodeView } from './nodes/ArrowNodeView';
 import { HighlightNodeView } from './nodes/HighlightNodeView';
 import { StackNodeView } from './nodes/StackNodeView';
 import { RangeNodeView } from './nodes/RangeNodeView';
+import { HashMapNodeView } from './nodes/HashMapNodeView';
+import { TreeNodeView } from './nodes/TreeNodeView';
+import { ListNodeView } from './nodes/ListNodeView';
 import { Info, Sparkles, Lock } from 'lucide-react';
 
 export const Canvas: React.FC = () => {
@@ -75,7 +78,27 @@ export const Canvas: React.FC = () => {
   // together by the same delta.
   const [groupDragAnchors, setGroupDragAnchors] = useState<Record<string, { x: number; y: number }> | null>(null);
 
+  // While dragging a single node, this holds the canvas-space position of
+  // the alignment guide line(s) to draw when it snaps flush with another
+  // node's edge/center -- null on an axis with no active snap.
+  const [alignGuide, setAlignGuide] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+
+  // Dragging a rubber-band line out of a linked-list node's pointer knob to
+  // wire up `next` by dropping on another list node, instead of only being
+  // able to pick the target from the Properties Panel dropdown.
+  const [linkDrag, setLinkDrag] = useState<{ sourceId: string; x: number; y: number; hoverTargetId: string | null } | null>(null);
+
   const handleEndDrag = useCallback(() => {
+    if (linkDrag) {
+      if (linkDrag.hoverTargetId && linkDrag.hoverTargetId !== linkDrag.sourceId && simulation && simulation.steps[currentStepIndex]) {
+        const sourceNode = simulation.steps[currentStepIndex].objects.find((o) => o.id === linkDrag.sourceId);
+        if (sourceNode && sourceNode.type === 'listnode') {
+          updateObject(linkDrag.sourceId, { data: { ...sourceNode.data, next: linkDrag.hoverTargetId } } as any);
+        }
+      }
+      setLinkDrag(null);
+    }
+
     if (draggingNodeId && simulation && simulation.steps[currentStepIndex]) {
       const currentObjects = simulation.steps[currentStepIndex].objects;
       const draggedNode = currentObjects.find((o) => o.id === draggingNodeId);
@@ -110,6 +133,7 @@ export const Canvas: React.FC = () => {
     setGroupDragAnchors(null);
     setIsMarqueeSelecting(false);
     setIsDrawingShape(false);
+    setAlignGuide({ x: null, y: null });
   }, [
     draggingNodeId,
     simulation,
@@ -123,12 +147,13 @@ export const Canvas: React.FC = () => {
     drawCurrent,
     addObject,
     setActiveTool,
+    linkDrag,
   ]);
 
   // Window-level safety listeners to eliminate phantom / sticky drag
   useEffect(() => {
     const handleGlobalMouseUp = () => {
-      if (draggingNodeId || isPanning || isDrawingShape) {
+      if (draggingNodeId || isPanning || isDrawingShape || linkDrag) {
         handleEndDrag();
       }
     };
@@ -159,7 +184,7 @@ export const Canvas: React.FC = () => {
       window.removeEventListener('blur', handleGlobalMouseUp);
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [draggingNodeId, isPanning, isDrawingShape, activeTool, handleEndDrag, setActiveTool]);
+  }, [draggingNodeId, isPanning, isDrawingShape, linkDrag, activeTool, handleEndDrag, setActiveTool]);
 
   // Figma-style Space-to-pan: holding Space switches empty-canvas drag from
   // marquee-select to panning, same as most design tools.
@@ -432,9 +457,28 @@ export const Canvas: React.FC = () => {
 
     // Safety check: If no mouse buttons are pressed, clear any drag/pan/marquee immediately
     if (e.buttons === 0) {
-      if (draggingNodeId || isPanning || isMarqueeSelecting) {
+      if (draggingNodeId || isPanning || isMarqueeSelecting || linkDrag) {
         handleEndDrag();
       }
+      return;
+    }
+
+    if (linkDrag) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return;
+      const curX = (e.clientX - canvasRect.left - pan.x) / zoom;
+      const curY = (e.clientY - canvasRect.top - pan.y) / zoom;
+
+      let hoverTargetId: string | null = null;
+      for (const [id, rect] of listNodeRects) {
+        if (id === linkDrag.sourceId) continue;
+        if (curX >= rect.x && curX <= rect.x + rect.width && curY >= rect.y && curY <= rect.y + rect.height) {
+          hoverTargetId = id;
+          break;
+        }
+      }
+
+      setLinkDrag({ ...linkDrag, x: curX, y: curY, hoverTargetId });
       return;
     }
 
@@ -475,10 +519,11 @@ export const Canvas: React.FC = () => {
 
       // No origin clamp: nodes can be placed freely in any direction, like a
       // Figma canvas that isn't pinned to a top-left corner.
-      const clampedX = snapEnabled ? snapToGrid(rawX, gridSize) : Math.round(rawX);
-      const clampedY = snapEnabled ? snapToGrid(rawY, gridSize) : Math.round(rawY);
+      let clampedX = snapEnabled ? snapToGrid(rawX, gridSize) : Math.round(rawX);
+      let clampedY = snapEnabled ? snapToGrid(rawY, gridSize) : Math.round(rawY);
 
       if (groupDragAnchors) {
+        if (alignGuide.x !== null || alignGuide.y !== null) setAlignGuide({ x: null, y: null });
         const primaryAnchor = groupDragAnchors[draggingNodeId];
         const dx = clampedX - primaryAnchor.x;
         const dy = clampedY - primaryAnchor.y;
@@ -486,6 +531,24 @@ export const Canvas: React.FC = () => {
           updateObject(id, { x: anchor.x + dx, y: anchor.y + dy }, true);
         }
       } else {
+        // Figma-style smart alignment: snap flush with the nearest edge or
+        // center of any other node on the canvas, so two components you
+        // drag next to each other land in neat, uniform rows/columns
+        // instead of a few pixels off. A stronger signal than the grid, so
+        // it overrides grid-snap on whichever axis it fires on.
+        const draggedNode = objects.find((o) => o.id === draggingNodeId);
+        if (draggedNode) {
+          const others = objects.filter((o) => o.id !== draggingNodeId);
+          const snap = computeSmartSnap(
+            { x: rawX, y: rawY, width: draggedNode.width, height: draggedNode.height },
+            others,
+            6 / zoom
+          );
+          if (snap.x !== null) clampedX = snap.x;
+          if (snap.y !== null) clampedY = snap.y;
+          setAlignGuide({ x: snap.guideX, y: snap.guideY });
+        }
+
         // Skip history during drag, save on drag end
         updateObject(draggingNodeId, { x: clampedX, y: clampedY }, true);
       }
@@ -516,6 +579,16 @@ export const Canvas: React.FC = () => {
 
       updateObject(draggingNodeId, { x: nextX, y: nextY });
     }
+  };
+
+  const handleStartListLink = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    if (isTransitioning) return;
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!canvasRect) return;
+    const x = (e.clientX - canvasRect.left - pan.x) / zoom;
+    const y = (e.clientY - canvasRect.top - pan.y) / zoom;
+    setLinkDrag({ sourceId: nodeId, x, y, hoverTargetId: null });
   };
 
   const handleNodeMouseDown = (e: React.MouseEvent, node: VisualNode) => {
@@ -726,6 +799,19 @@ export const Canvas: React.FC = () => {
         return <PointerNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
       case 'range':
         return <RangeNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
+      case 'hashmap':
+        return <HashMapNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
+      case 'tree':
+        return <TreeNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
+      case 'listnode':
+        return (
+          <ListNodeView
+            node={node as any}
+            isSelected={isSelected}
+            isInteractive={!isTransitioning}
+            onStartLinkDrag={(e) => handleStartListLink(e, node.id)}
+          />
+        );
       case 'text':
         return <TextNodeView node={node as any} isSelected={isSelected} isInteractive={!isTransitioning} />;
       case 'arrow':
@@ -809,6 +895,23 @@ export const Canvas: React.FC = () => {
     );
   };
 
+  // Linked-list connector arrows -- recomputed every render from each list
+  // node's LIVE (possibly mid-drag or mid-transition) position, so moving
+  // any individual node keeps every next/prev arrow correctly attached
+  // without any manual re-routing.
+  const listNodeRects = new Map<string, { x: number; y: number; width: number; height: number }>();
+  objects.forEach((o) => {
+    if (o.type === 'listnode') {
+      const r = getRenderedNodeState(o);
+      listNodeRects.set(o.id, { x: r.x, y: r.y, width: o.width, height: o.height });
+    }
+  });
+  const listLinks = computeListLinks(
+    objects
+      .filter((o) => o.type === 'listnode')
+      .map((o) => ({ id: o.id, next: (o as any).data.next, prev: (o as any).data.prev, lineColor: (o as any).data.lineColor })),
+    (id) => listNodeRects.get(id)
+  );
 
   return (
     <div
@@ -954,6 +1057,106 @@ export const Canvas: React.FC = () => {
             }}
           />
         )}
+
+        {/* Smart alignment guides -- shown while a drag is flush with
+            another node's edge/center on that axis. */}
+        {alignGuide.x !== null && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none z-40"
+            style={{ left: `${alignGuide.x}px`, width: '1px', backgroundColor: '#f472b6' }}
+          />
+        )}
+        {alignGuide.y !== null && (
+          <div
+            className="absolute left-0 right-0 pointer-events-none z-40"
+            style={{ top: `${alignGuide.y}px`, height: '1px', backgroundColor: '#f472b6' }}
+          />
+        )}
+
+        {/* Linked-list next/prev connector arrows -- z-index kept above the
+            z-50 a node gets while actively being dragged, so repositioning
+            one list node never hides the line underneath it. */}
+        {listLinks.length > 0 && (
+          <svg
+            className="absolute top-0 left-0 pointer-events-none"
+            width={simulation.settings?.canvasWidth || 6000}
+            height={simulation.settings?.canvasHeight || 4000}
+            style={{ zIndex: 55 }}
+          >
+            <defs>
+              {listLinks.map((seg, i) => (
+                <marker
+                  key={i}
+                  id={`listnode-arrow-${i}`}
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={seg.color} />
+                </marker>
+              ))}
+            </defs>
+            {listLinks.map((seg, i) => (
+              <line
+                key={i}
+                x1={seg.x1}
+                y1={seg.y1}
+                x2={seg.x2}
+                y2={seg.y2}
+                stroke={seg.color}
+                strokeWidth={2}
+                markerEnd={`url(#listnode-arrow-${i})`}
+              />
+            ))}
+          </svg>
+        )}
+
+        {/* In-progress link drag: a rubber-band line from the source node's
+            pointer knob to the live cursor, while dragging out a new `next`
+            connection between linked-list nodes. */}
+        {linkDrag && (() => {
+          const sourceRect = listNodeRects.get(linkDrag.sourceId);
+          if (!sourceRect) return null;
+          const startX = sourceRect.x + sourceRect.width;
+          const startY = sourceRect.y + sourceRect.height / 2;
+          const hoverRect = linkDrag.hoverTargetId ? listNodeRects.get(linkDrag.hoverTargetId) : null;
+          return (
+            <>
+              <svg
+                className="absolute top-0 left-0 pointer-events-none"
+                width={simulation.settings?.canvasWidth || 6000}
+                height={simulation.settings?.canvasHeight || 4000}
+                style={{ zIndex: 60 }}
+              >
+                <line
+                  x1={startX}
+                  y1={startY}
+                  x2={linkDrag.x}
+                  y2={linkDrag.y}
+                  stroke="#22d3ee"
+                  strokeWidth={2}
+                  strokeDasharray="6 4"
+                />
+              </svg>
+              {hoverRect && (
+                <div
+                  className="absolute pointer-events-none rounded-lg ring-2 ring-cyan-400"
+                  style={{
+                    left: `${hoverRect.x - 4}px`,
+                    top: `${hoverRect.y - 4}px`,
+                    width: `${hoverRect.width + 8}px`,
+                    height: `${hoverRect.height + 8}px`,
+                    zIndex: 60,
+                    boxShadow: '0 0 0 4px rgba(34, 211, 238, 0.25)',
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
 
         {/* Render Canvas Visual Nodes */}
         {objects.map((node) => {
